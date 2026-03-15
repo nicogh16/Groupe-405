@@ -1,0 +1,5 @@
+# Groupe 405 Panel — Application interne privée
+# Aucun indexation autorisée
+
+User-agent: *
+Disallow: /

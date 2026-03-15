@@ -1,0 +1,489 @@
+"use server"
+
+import { revalidatePath } from "next/cache"
+import { createClient } from "@/lib/supabase/server"
+import { provisionClientSchema } from "@/lib/validations/provisioning"
+import { PROVISIONING_STEPS } from "@/lib/validations/provisioning"
+import type { Profile } from "@/types"
+
+// ─── Helper : vérifier admin ────────────────────────────────────────────────
+
+async function requireAdmin() {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error("Non authentifié")
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single()
+
+  if ((profile as Profile | null)?.role !== "admin") {
+    throw new Error("Accès refusé")
+  }
+
+  return { user, supabase }
+}
+
+// ─── Helper : récupérer le token de session ─────────────────────────────────
+
+async function getSessionToken(): Promise<string | null> {
+  const supabase = await createClient()
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  return session?.access_token ?? null
+}
+
+// ─── Action : Lancer le provisionnement d'un nouveau client ─────────────────
+
+export async function startProvisioning(formData: FormData) {
+  const { user, supabase } = await requireAdmin()
+
+  const parsed = provisionClientSchema.safeParse({
+    templateId: formData.get("templateId"),
+    clientName: formData.get("clientName"),
+    clientSlug: formData.get("clientSlug"),
+    supabasePlan: formData.get("supabasePlan") || "free",
+    supabaseRegion: formData.get("supabaseRegion") || "ca-central-1",
+    monthlyRevenue: parseFloat(formData.get("monthlyRevenue") as string) || 0,
+    githubRepoName: formData.get("githubRepoName") || undefined,
+    vercelProjectName: formData.get("vercelProjectName") || undefined,
+  })
+
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Données invalides",
+    }
+  }
+
+  // Vérifier que le slug n'est pas déjà pris
+  const { data: existingClient } = await supabase
+    .from("clients")
+    .select("id")
+    .eq("slug", parsed.data.clientSlug)
+    .maybeSingle()
+
+  if (existingClient) {
+    return { error: "Ce slug est déjà utilisé par un autre client" }
+  }
+
+  // Vérifier que le template existe
+  const { data: template } = await supabase
+    .from("project_templates")
+    .select("id, app_id")
+    .eq("id", parsed.data.templateId)
+    .single()
+
+  if (!template) {
+    return { error: "Template introuvable" }
+  }
+
+  // Créer le job avec les steps initiales
+  const initialSteps = PROVISIONING_STEPS.map((s) => ({
+    id: s.id,
+    label: s.label,
+    status: "pending" as const,
+  }))
+
+  const { data: job, error: jobError } = await supabase
+    .from("provisioning_jobs")
+    .insert({
+      client_name: parsed.data.clientName,
+      client_slug: parsed.data.clientSlug,
+      app_id: template.app_id,
+      template_id: parsed.data.templateId,
+      supabase_plan: parsed.data.supabasePlan,
+      supabase_region: parsed.data.supabaseRegion,
+      monthly_revenue: parsed.data.monthlyRevenue,
+      status: "pending",
+      steps: initialSteps,
+      created_by: user.id,
+    })
+    .select("id")
+    .single()
+
+  if (jobError || !job) {
+    console.error("Error creating provisioning job:", jobError?.message)
+    return {
+      error: jobError?.message || "Erreur lors de la création du job",
+    }
+  }
+
+  // Lancer l'Edge Function en arrière-plan (fire-and-forget)
+  // Utiliser fetch directement avec le token pour garantir l'authentification
+  const sessionToken = await getSessionToken()
+  if (!sessionToken) {
+    return { error: "Non authentifié" }
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+  fetch(`${supabaseUrl}/functions/v1/provision-client`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionToken}`,
+      apikey: supabaseAnonKey,
+    },
+    body: JSON.stringify({ job_id: job.id }),
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        let errorText = ""
+        try {
+          const errorData = await res.json()
+          errorText = errorData.error || errorData.message || JSON.stringify(errorData)
+        } catch {
+          errorText = await res.text().catch(() => res.statusText)
+        }
+        
+        let errorMessage = `Erreur ${res.status}: ${errorText}`
+        
+        if (res.status === 401) {
+          errorMessage = "Erreur d'authentification (401). Vérifiez que vous êtes bien connecté."
+        } else if (res.status === 503) {
+          errorMessage = "Edge Function non disponible (503). Vérifiez que la fonction 'provision-client' est déployée et que tous les secrets sont configurés."
+        } else if (res.status === 404) {
+          // Ne pas mettre à jour le job si c'est juste un 404 de l'appel initial
+          // L'Edge Function peut retourner 404 pour d'autres raisons (job introuvable, etc.)
+          if (errorText.includes("job_id") || errorText.includes("Job introuvable")) {
+            errorMessage = `Job introuvable: ${errorText}`
+          } else {
+            errorMessage = "Edge Function introuvable (404). La fonction 'provision-client' n'est pas déployée."
+          }
+        }
+        
+        console.error("Error invoking provision-client:", res.status, errorMessage)
+        
+        // Mettre à jour le job avec l'erreur seulement si ce n'est pas un 404 de l'Edge Function elle-même
+        // (car si l'Edge Function n'est pas déployée, on ne peut pas mettre à jour le job)
+        if (res.status !== 404 || errorText.includes("job_id") || errorText.includes("Job introuvable")) {
+          try {
+            await supabase
+              .from("provisioning_jobs")
+              .update({
+                status: "failed",
+                error_message: errorMessage,
+                error_step: "edge_function_invoke",
+                completed_at: new Date().toISOString(),
+              })
+              .eq("id", job.id)
+          } catch (err) {
+            console.error("Erreur lors de la mise à jour du job:", err)
+          }
+        }
+      } else {
+        const data = await res.json().catch(() => ({}))
+        console.log("Provision-client invoqué avec succès:", data)
+        // Ne pas mettre à jour le job ici car l'Edge Function le fait elle-même
+      }
+    })
+    .catch(async (err) => {
+      console.error("Failed to trigger provision-client:", err)
+      
+      let errorMessage = "Impossible de lancer l'Edge Function"
+      const errMessage = err?.message || String(err)
+      
+      // Détecter les erreurs réseau ou de connexion
+      if (errMessage.includes("Failed to fetch") || errMessage.includes("NetworkError") || errMessage.includes("fetch")) {
+        errorMessage = "Erreur de connexion à l'Edge Function. Vérifiez que la fonction 'provision-client' est déployée et accessible."
+      } else if (errMessage.includes("503") || errMessage.includes("Service Unavailable")) {
+        errorMessage = "Edge Function non disponible (503). Vérifiez que la fonction 'provision-client' est déployée et que tous les secrets sont configurés."
+      } else if (errMessage.includes("404") || errMessage.includes("Not Found")) {
+        errorMessage = "Edge Function introuvable (404). La fonction 'provision-client' n'est pas déployée."
+      } else if (errMessage) {
+        errorMessage = `Erreur: ${errMessage}`
+      }
+      
+      // Mettre à jour le job avec l'erreur
+      try {
+        await supabase
+          .from("provisioning_jobs")
+          .update({
+            status: "failed",
+            error_message: errorMessage,
+            error_step: "edge_function_invoke",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", job.id)
+      } catch (updateErr) {
+        console.error("Erreur lors de la mise à jour du job:", updateErr)
+      }
+    })
+
+  // Audit log
+  await supabase.from("audit_log").insert({
+    user_id: user.id,
+    action: "provisioning_started",
+    details: {
+      job_id: job.id,
+      client_name: parsed.data.clientName,
+      client_slug: parsed.data.clientSlug,
+      template_id: parsed.data.templateId,
+    },
+  })
+
+  revalidatePath("/clients")
+  return { success: true, jobId: job.id }
+}
+
+// ─── Action : Récupérer le status d'un job ──────────────────────────────────
+
+export async function getProvisioningJobStatus(jobId: string) {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: "Non authentifié" }
+
+  const { data: job, error } = await supabase
+    .from("provisioning_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .single()
+
+  if (error || !job) {
+    return { error: "Job introuvable" }
+  }
+
+  return { job }
+}
+
+// ─── Action : Lister les templates actifs ───────────────────────────────────
+
+export async function getActiveTemplates() {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: "Non authentifié", templates: [] }
+
+  const { data: templates, error } = await supabase
+    .from("project_templates")
+    .select("*, app:apps(*)")
+    .eq("is_active", true)
+    .order("name")
+
+  if (error) {
+    return { error: error.message, templates: [] }
+  }
+
+  return { templates: templates ?? [] }
+}
+
+// ─── Action : Annuler/Supprimer un job de provisionnement ────────────────────
+
+export async function cancelProvisioningJob(jobId: string) {
+  const { user, supabase } = await requireAdmin()
+
+  // Vérifier que le job existe et récupérer le supabase_project_ref
+  const { data: job, error: jobError } = await supabase
+    .from("provisioning_jobs")
+    .select("id, status, client_id, supabase_project_ref")
+    .eq("id", jobId)
+    .single()
+
+  if (jobError || !job) {
+    return { error: "Job introuvable" }
+  }
+
+  // Si le job est terminé et a créé un client, on ne peut pas le supprimer
+  if (job.status === "completed" && job.client_id) {
+    return { error: "Impossible de supprimer un job terminé qui a créé un client" }
+  }
+
+  // Si le job est en cours, on le marque comme annulé et on supprime le projet Supabase s'il existe
+  if (job.status === "running") {
+    // Supprimer le projet Supabase s'il existe
+    if (job.supabase_project_ref) {
+      try {
+        const accessToken = process.env.ACCESS_TOKEN
+        
+        if (accessToken) {
+          const deleteProjectRes = await fetch(
+            `https://api.supabase.com/v1/projects/${job.supabase_project_ref}`,
+            {
+              method: "DELETE",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
+              },
+            }
+          )
+
+          if (deleteProjectRes.ok) {
+            console.log(`✅ Projet Supabase ${job.supabase_project_ref} supprimé avec succès`)
+          } else {
+            const errorText = await deleteProjectRes.text()
+            console.warn(`⚠️ Échec suppression projet Supabase ${job.supabase_project_ref}: ${deleteProjectRes.status} - ${errorText}`)
+          }
+        } else {
+          console.warn(`⚠️ Token Supabase (ACCESS_TOKEN) non configuré, impossible de supprimer le projet Supabase ${job.supabase_project_ref}`)
+        }
+      } catch (error) {
+        console.error(`❌ Erreur lors de la suppression du projet Supabase ${job.supabase_project_ref}:`, error)
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from("provisioning_jobs")
+      .update({
+        status: "cancelled",
+        error_message: "Annulé par l'utilisateur",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", jobId)
+
+    if (updateError) {
+      return { error: updateError.message }
+    }
+
+    // Audit log
+    await supabase.from("audit_log").insert({
+      user_id: user.id,
+      action: "provisioning_job_cancelled",
+      details: { 
+        job_id: jobId,
+        supabase_project_ref: job.supabase_project_ref || null,
+      },
+    })
+
+    revalidatePath("/clients")
+    return { success: true, message: "Job annulé" }
+  }
+
+  // Avant de supprimer le job, supprimer le projet Supabase s'il existe
+  if (job.supabase_project_ref) {
+    try {
+      // Récupérer le token d'accès Supabase depuis les variables d'environnement
+      // Note: On utilise le même token que celui utilisé par l'Edge Function (ACCESS_TOKEN)
+      // Cette variable doit être dans .env.local côté serveur Next.js
+      const accessToken = process.env.ACCESS_TOKEN
+      
+      if (!accessToken) {
+        console.warn(`⚠️ Token Supabase (ACCESS_TOKEN) non configuré dans .env.local, impossible de supprimer le projet Supabase ${job.supabase_project_ref}`)
+        // On continue quand même la suppression du job
+      } else {
+        // Supprimer le projet Supabase via l'API Management
+        const deleteProjectRes = await fetch(
+          `https://api.supabase.com/v1/projects/${job.supabase_project_ref}`,
+          {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        )
+
+        if (deleteProjectRes.ok) {
+          console.log(`✅ Projet Supabase ${job.supabase_project_ref} supprimé avec succès`)
+        } else {
+          const errorText = await deleteProjectRes.text()
+          console.warn(`⚠️ Échec suppression projet Supabase ${job.supabase_project_ref}: ${deleteProjectRes.status} - ${errorText}`)
+          // On continue quand même la suppression du job même si la suppression du projet a échoué
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Erreur lors de la suppression du projet Supabase ${job.supabase_project_ref}:`, error)
+      // On continue quand même la suppression du job même si la suppression du projet a échoué
+    }
+  }
+
+  // Supprimer le job complètement
+  const { error: deleteError } = await supabase.from("provisioning_jobs").delete().eq("id", jobId)
+
+  if (deleteError) {
+    return { error: deleteError.message }
+  }
+
+  // Audit log
+  await supabase.from("audit_log").insert({
+    user_id: user.id,
+    action: "provisioning_job_deleted",
+    details: { 
+      job_id: jobId,
+      supabase_project_ref: job.supabase_project_ref || null,
+    },
+  })
+
+  revalidatePath("/clients")
+  return { success: true, message: "Job supprimé" }
+}
+
+// ─── Action : Relancer un job bloqué ──────────────────────────────────────────
+
+export async function retryProvisioningJob(jobId: string) {
+  const { user, supabase } = await requireAdmin()
+
+  // Vérifier que le job existe et est en pending ou failed
+  const { data: job, error: jobError } = await supabase
+    .from("provisioning_jobs")
+    .select("id, status, client_id")
+    .eq("id", jobId)
+    .single()
+
+  if (jobError || !job) {
+    return { error: "Job introuvable" }
+  }
+
+  if (job.status === "running") {
+    return { error: "Le job est déjà en cours" }
+  }
+
+  if (job.status === "completed" && job.client_id) {
+    return { error: "Le job est déjà terminé avec succès" }
+  }
+
+  // Relancer l'Edge Function
+  supabase.functions
+    .invoke("provision-client", {
+      body: { job_id: jobId },
+    })
+    .then((result) => {
+      if (result.error) {
+        console.error("Error invoking provision-client:", result.error)
+        supabase
+          .from("provisioning_jobs")
+          .update({
+            status: "failed",
+            error_message: result.error.message || "Erreur lors du relancement",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", jobId)
+      } else {
+        console.log("Provision-client relancé avec succès")
+      }
+    })
+    .catch((err) => {
+      console.error("Failed to retry provision-client:", err)
+      supabase
+        .from("provisioning_jobs")
+        .update({
+          status: "failed",
+          error_message: err.message || "Impossible de relancer l'Edge Function",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", jobId)
+    })
+
+  // Audit log
+  await supabase.from("audit_log").insert({
+    user_id: user.id,
+    action: "provisioning_job_retried",
+    details: { job_id: jobId },
+  })
+
+  revalidatePath("/clients")
+  return { success: true, message: "Relance du job en cours..." }
+}
