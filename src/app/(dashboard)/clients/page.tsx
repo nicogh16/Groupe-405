@@ -3,7 +3,6 @@ import { redirect } from "next/navigation"
 import { ClientGrid } from "@/components/dashboard/client-grid"
 import { ProvisionClientDialog } from "@/components/clients/provision-client-dialog"
 import { RecentJobs } from "@/components/clients/recent-jobs"
-import { EdgeFunctionStatus } from "@/components/clients/edge-function-status"
 import type { Client, App, UsageSnapshot, Profile, ProvisioningJob } from "@/types"
 
 export default async function ClientsPage() {
@@ -76,7 +75,6 @@ export default async function ClientsPage() {
         </div>
         {isAdmin && <ProvisionClientDialog />}
       </div>
-      {isAdmin && <EdgeFunctionStatus />}
       <ClientGrid clients={clients} snapshots={snapshots} />
       {isAdmin && recentJobs.length > 0 && <RecentJobs jobs={recentJobs} />}
     </div>
