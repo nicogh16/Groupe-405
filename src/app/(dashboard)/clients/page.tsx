@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { ClientGrid } from "@/components/dashboard/client-grid"
 import { ProvisionClientDialog } from "@/components/clients/provision-client-dialog"
+import { RestoreProjectDialog } from "@/components/clients/restore-project-dialog"
 import { RecentJobs } from "@/components/clients/recent-jobs"
 import type { Client, App, UsageSnapshot, Profile, ProvisioningJob } from "@/types"
 
@@ -73,7 +74,12 @@ export default async function ClientsPage() {
             {clients.length} client{clients.length > 1 ? "s" : ""} au total
           </p>
         </div>
-        {isAdmin && <ProvisionClientDialog />}
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <RestoreProjectDialog />
+            <ProvisionClientDialog />
+          </div>
+        )}
       </div>
       <ClientGrid clients={clients} snapshots={snapshots} />
       {isAdmin && recentJobs.length > 0 && <RecentJobs jobs={recentJobs} />}

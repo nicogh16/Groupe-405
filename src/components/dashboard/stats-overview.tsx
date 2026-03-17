@@ -34,17 +34,19 @@ export function StatsOverview({ stats }: { stats: DashboardStats }) {
   ]
 
   return (
-    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       {items.map((item) => (
-        <Card key={item.label} className="border-border/50">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-              <item.icon className="h-4 w-4 text-muted-foreground" />
+        <Card key={item.label} className="border border-border/50 shadow-sm hover:shadow-md transition-shadow">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{item.label}</p>
+              <div className="p-2 rounded-md bg-muted">
+                <item.icon className="h-4 w-4 text-muted-foreground" />
+              </div>
             </div>
-            <div className="mt-2">
-              <p className="text-xl font-bold tracking-tight">{item.value}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{item.subLabel}</p>
+            <div>
+              <p className="text-2xl font-bold tracking-tight text-foreground">{item.value}</p>
+              <p className="text-xs text-muted-foreground mt-2">{item.subLabel}</p>
             </div>
           </CardContent>
         </Card>

@@ -21,7 +21,7 @@ interface RecentJobsProps {
 function JobStatusIcon({ status }: { status: ProvisioningJobStatus }) {
   switch (status) {
     case "completed":
-      return <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+      return <CheckCircle2 className="h-4 w-4 text-success" />
     case "running":
       return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
     case "failed":

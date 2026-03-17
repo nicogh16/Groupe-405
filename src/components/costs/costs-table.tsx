@@ -180,18 +180,18 @@ export function CostsTable({ clients, snapshots, isAdmin }: CostsTableProps) {
                       </Button>
                     </div>
                   ) : (
-                    <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    <span className="font-medium text-success">
                       {formatCurrency(monthlyRevenue)}
                     </span>
                   )}
                 </TableCell>
-                <TableCell className="text-right font-medium text-emerald-600 dark:text-emerald-400">
+                <TableCell className="text-right font-medium text-success">
                   {formatCurrency(annualRevenue)}
                 </TableCell>
                 <TableCell
                   className={`text-right font-medium ${
                     monthlyMargin >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
+                      ? "text-success"
                       : "text-red-600 dark:text-red-400"
                   }`}
                 >
@@ -200,7 +200,7 @@ export function CostsTable({ clients, snapshots, isAdmin }: CostsTableProps) {
                 <TableCell
                   className={`text-right font-medium ${
                     annualMargin >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
+                      ? "text-success"
                       : "text-red-600 dark:text-red-400"
                   }`}
                 >
@@ -209,7 +209,7 @@ export function CostsTable({ clients, snapshots, isAdmin }: CostsTableProps) {
                 <TableCell
                   className={`text-right font-medium ${
                     parseFloat(marginPercent) >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
+                      ? "text-success"
                       : "text-red-600 dark:text-red-400"
                   }`}
                 >

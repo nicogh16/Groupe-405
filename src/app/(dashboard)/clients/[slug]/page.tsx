@@ -195,7 +195,7 @@ export default async function ClientDetailPage({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-muted-foreground">Revenu annuel</p>
-                <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                <p className="text-lg font-bold text-success">
                   {formatCurrency(client.monthly_revenue * 12)}
                 </p>
               </div>

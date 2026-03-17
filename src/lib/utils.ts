@@ -34,7 +34,7 @@ export function getUsagePercentage(used: number, limit: number): number {
 export function getStatusColor(status: string): string {
   switch (status) {
     case "active":
-      return "bg-emerald-500"
+      return "bg-green-500"
     case "paused":
       return "bg-amber-500"
     case "inactive":

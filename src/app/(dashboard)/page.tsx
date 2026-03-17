@@ -63,16 +63,18 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+    <div className="space-y-8">
+      <div className="space-y-1">
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
+        <p className="text-sm text-muted-foreground">
           Vue d&apos;ensemble de toutes vos instances clients.
         </p>
       </div>
       <StatsOverview stats={stats} />
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Clients</h2>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Clients</h2>
+        </div>
         <ClientGrid clients={clients} snapshots={snapshots} />
       </div>
     </div>

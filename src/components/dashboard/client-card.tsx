@@ -25,16 +25,16 @@ export function ClientCard({ client, latestSnapshot }: ClientCardProps) {
 
   return (
     <Link href={`/clients/${client.slug}`}>
-      <Card className="border-border/50 hover:border-border transition-colors cursor-pointer group">
-        <CardContent className="p-4 space-y-4">
+      <Card className="border border-border/50 hover:border-border hover:shadow-lg transition-all cursor-pointer group shadow-sm">
+        <CardContent className="p-6 space-y-4">
           {/* Header */}
           <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-2.5">
                 <div className={`h-2 w-2 rounded-full ${getStatusColor(client.status)}`} />
-                <h3 className="text-sm font-semibold">{client.name}</h3>
+                <h3 className="text-base font-semibold text-foreground">{client.name}</h3>
               </div>
-              <Badge variant={appConfig?.badgeVariant ?? "default"} className="text-[10px] px-1.5 py-0">
+              <Badge variant={appConfig?.badgeVariant ?? "default"} className="text-xs px-2 py-1 font-medium">
                 {appConfig?.label ?? client.app.name}
               </Badge>
             </div>
@@ -42,35 +42,36 @@ export function ClientCard({ client, latestSnapshot }: ClientCardProps) {
           </div>
 
           {/* Users */}
-          <div className="flex items-center gap-2 text-sm">
-            <Users className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="font-medium">
+          <div className="flex items-center gap-2.5 text-base">
+            <Users className="h-4 w-4 text-muted-foreground/70" />
+            <span className="font-medium text-foreground">
               {latestSnapshot ? formatNumber(latestSnapshot.registered_users_count) : "—"}
             </span>
-            <span className="text-muted-foreground text-xs">utilisateurs</span>
+            <span className="text-muted-foreground text-sm">utilisateurs</span>
           </div>
 
           {/* Usage */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <UsageProgress label="Base de données" value={dbUsage} />
             <UsageProgress label="Stockage" value={storageUsage} />
           </div>
 
           {/* Financials */}
-          <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
+          <div className="flex items-center justify-between pt-4 border-t border-border/50">
             <div>
-              <span className="text-muted-foreground">Coût</span>
-              <p className="font-medium">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Coût</span>
+              <p className="text-sm font-semibold text-foreground mt-1">
                 {latestSnapshot
                   ? formatCurrency(latestSnapshot.estimated_monthly_cost)
                   : formatCurrency(planLimits.monthlyCostBase)}
-                /mois
+                <span className="text-xs font-normal text-muted-foreground">/mois</span>
               </p>
             </div>
             <div className="text-right">
-              <span className="text-muted-foreground">Revenu</span>
-              <p className="font-medium text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(client.monthly_revenue)}/mois
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Revenu</span>
+              <p className="text-sm font-semibold text-success mt-1">
+                {formatCurrency(client.monthly_revenue)}
+                <span className="text-xs font-normal text-muted-foreground">/mois</span>
               </p>
             </div>
           </div>

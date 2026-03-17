@@ -352,6 +352,24 @@ Deno.serve(async (req: Request) => {
     console.log(`[TEMPLATE] Template trouvé: ${projectTemplate.name}`)
     console.log(`[TEMPLATE] GitHub: ${projectTemplate.github_template_owner}/${projectTemplate.github_template_repo}`)
     console.log(`[TEMPLATE] Région: ${provisioningJob.supabase_region}, Plan: ${provisioningJob.supabase_plan}`)
+    
+    // Récupérer l'app pour déterminer le fichier template à utiliser
+    console.log(`[TEMPLATE] Récupération de l'app avec app_id: ${projectTemplate.app_id}`)
+    const { data: app, error: appError } = await supabaseAdmin
+      .from("apps")
+      .select("slug, name")
+      .eq("id", projectTemplate.app_id)
+      .single()
+    
+    if (appError || !app) {
+      console.error(`[TEMPLATE] ERREUR: Impossible de récupérer l'app - ${appError?.message || "app introuvable"}`)
+      console.warn(`[TEMPLATE] Utilisation du template par défaut (app_id: ${projectTemplate.app_id})`)
+    } else {
+      console.log(`[TEMPLATE] App trouvée: ${app.name} (slug: ${app.slug})`)
+    }
+    
+    const appSlug = app?.slug || ""
+    console.log(`[TEMPLATE] App slug déterminé: "${appSlug}"`)
 
     // ─── ÉTAPE 1: Créer le projet Supabase ──────────────────────────────────────
     console.log("\n" + "─".repeat(80))
@@ -572,6 +590,11 @@ Deno.serve(async (req: Request) => {
     )
 
     // ─── ÉTAPE 3: Charger le fichier SQL template ──────────
+    // Déterminer le nom du fichier template selon l'app
+    const templateFileName = appSlug === "myfidelity" 
+      ? "supabase_new_project.sql"
+      : "supabase-template-zdicqtupwckhvxhlkiuf.sql"
+    
     await updateStep(
       supabaseAdmin,
       job_id,
@@ -580,13 +603,11 @@ Deno.serve(async (req: Request) => {
         status: "in_progress",
         started_at: new Date().toISOString(),
       },
-      `Chargement du fichier SQL template depuis le projet source: zdicqtupwckhvxhlkiuf`
+      `Chargement du fichier SQL template: ${templateFileName}`
     )
 
-    // Charger le fichier SQL template depuis le système de fichiers de l'Edge Function
-    // Le fichier doit être dans le même répertoire que l'Edge Function
-    const templateProjectRef = "zdicqtupwckhvxhlkiuf"
-    const templateFileName = `supabase-template-${templateProjectRef}.sql`
+    // Charger le fichier SQL template depuis le bucket Storage Supabase
+    const templateProjectRef = appSlug === "myfidelity" ? "new_project" : "zdicqtupwckhvxhlkiuf"
     
     await updateStep(
       supabaseAdmin,
@@ -600,7 +621,7 @@ Deno.serve(async (req: Request) => {
     let templateSQL: string
     try {
       // Lire le fichier template depuis un bucket Storage Supabase
-      // Le bucket "templates" doit contenir le fichier supabase-template-zdicqtupwckhvxhlkiuf.sql
+      // Le bucket "templates" doit contenir le fichier template (supabase_new_project.sql pour MyFidelity, ou supabase-template-zdicqtupwckhvxhlkiuf.sql pour les autres)
       await updateStep(
         supabaseAdmin,
         job_id,

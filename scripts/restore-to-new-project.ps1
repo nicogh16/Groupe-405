@@ -10,12 +10,37 @@ param(
 Write-Host "[RESTAURATION] Restauration dans un nouveau projet Supabase" -ForegroundColor Cyan
 Write-Host ("-" * 80)
 
-# Verifier si le fichier existe
-if (-not (Test-Path $DumpFile)) {
-    Write-Host "[ERREUR] Le fichier '$DumpFile' n'existe pas" -ForegroundColor Red
+# Chercher le fichier dans plusieurs emplacements possibles
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $scriptDir
+$possiblePaths = @(
+    $DumpFile,  # Chemin relatif depuis le répertoire courant
+    (Join-Path $PWD $DumpFile),  # Répertoire courant
+    (Join-Path $projectRoot $DumpFile),  # Racine du projet
+    (Join-Path $scriptDir $DumpFile)  # Même répertoire que le script
+)
+
+$foundFile = $null
+foreach ($path in $possiblePaths) {
+    if (Test-Path $path) {
+        $foundFile = $path
+        break
+    }
+}
+
+if (-not $foundFile) {
+    Write-Host "[ERREUR] Le fichier '$DumpFile' n'existe pas dans les emplacements suivants:" -ForegroundColor Red
+    foreach ($path in $possiblePaths) {
+        Write-Host "        - $path" -ForegroundColor Gray
+    }
+    Write-Host ""
     Write-Host "        Executez d'abord: .\scripts\prepare-dump-for-new-project.ps1" -ForegroundColor Yellow
     exit 1
 }
+
+# Utiliser le fichier trouvé
+$DumpFile = $foundFile
+Write-Host "[INFO] Fichier trouve: $DumpFile" -ForegroundColor Green
 
 # Verifier si psql est installe
 $psqlPath = Get-Command psql -ErrorAction SilentlyContinue
@@ -56,10 +81,10 @@ Write-Host "[INFO] Fichier: $DumpFile ($([math]::Round($fileSize, 2)) MB)" -Fore
 # Extraire les infos de la connection string pour affichage
 if ($ConnectionString -match 'postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)') {
     $user = $matches[1]
-    $host = $matches[3]
+    $dbHost = $matches[3]
     $port = $matches[4]
     $database = $matches[5]
-    Write-Host "[INFO] Connexion a: ${host}:${port}/${database}" -ForegroundColor Cyan
+    Write-Host "[INFO] Connexion a: ${dbHost}:${port}/${database}" -ForegroundColor Cyan
     Write-Host "       Utilisateur: $user" -ForegroundColor Gray
 } else {
     Write-Host "[INFO] Connection string fournie" -ForegroundColor Cyan

@@ -98,7 +98,7 @@ export default async function CostsPage() {
             <CardTitle className="text-sm font-medium">Revenu Mensuel Total</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+            <p className="text-2xl font-bold text-success">
               {formatCurrency(totalMonthlyRevenue)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -115,7 +115,7 @@ export default async function CostsPage() {
             <p
               className={`text-2xl font-bold ${
                 totalMonthlyMargin >= 0
-                  ? "text-emerald-600 dark:text-emerald-400"
+                  ? "text-success"
                   : "text-red-600 dark:text-red-400"
               }`}
             >

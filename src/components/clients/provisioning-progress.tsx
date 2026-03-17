@@ -40,7 +40,7 @@ interface ProvisioningProgressProps {
 function StepIcon({ status }: { status: ProvisioningStep["status"] }) {
   switch (status) {
     case "completed":
-      return <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+      return <CheckCircle2 className="h-5 w-5 text-success" />
     case "in_progress":
       return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
     case "failed":
@@ -400,30 +400,30 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
         </div>
 
         {/* Console en temps réel */}
-        <div className="mt-4 border rounded-lg overflow-hidden bg-[#1e1e1e]">
+        <div className="mt-4 border rounded-lg overflow-hidden bg-card">
           <button
             onClick={() => setShowConsole(!showConsole)}
-            className="w-full flex items-center justify-between p-3 bg-[#252526] hover:bg-[#2d2d30] transition text-left"
+            className="w-full flex items-center justify-between p-3 bg-muted hover:bg-accent transition text-left"
           >
             <div className="flex items-center gap-2">
-              <Terminal className="h-4 w-4 text-emerald-400" />
-              <span className="text-sm font-medium text-gray-200">Console (logs en temps réel)</span>
-              <span className="text-xs text-gray-400">({consoleLogs.length} messages)</span>
+              <Terminal className="h-4 w-4 text-success" />
+              <span className="text-sm font-medium text-foreground">Console (logs en temps réel)</span>
+              <span className="text-xs text-muted-foreground">({consoleLogs.length} messages)</span>
             </div>
             {showConsole ? (
-              <ChevronUp className="h-4 w-4 text-gray-400" />
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
             ) : (
-              <ChevronDown className="h-4 w-4 text-gray-400" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
             )}
           </button>
           {showConsole && (
             <div
               ref={consoleRef}
-              className="p-4 font-mono text-xs max-h-[300px] overflow-y-auto bg-[#1e1e1e]"
+              className="p-4 font-mono text-xs max-h-[300px] overflow-y-auto bg-card"
               style={{ fontFamily: "Consolas, Monaco, 'Courier New', monospace" }}
             >
               {consoleLogs.length === 0 ? (
-                <p className="text-gray-500">En attente de logs...</p>
+                <p className="text-muted-foreground">En attente de logs...</p>
               ) : (
                 <div className="space-y-0.5">
                   {consoleLogs.map((log, index) => {
@@ -435,16 +435,16 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
                     })
                     const colorClass =
                       log.level === "error"
-                        ? "text-red-400"
+                        ? "text-destructive"
                         : log.level === "success"
-                          ? "text-emerald-400"
+                          ? "text-success"
                           : log.level === "warn"
-                            ? "text-yellow-400"
-                            : "text-gray-300"
+                            ? "text-chart-3"
+                            : "text-muted-foreground"
 
                     return (
                       <div key={index} className="flex items-start gap-2 leading-relaxed">
-                        <span className="text-gray-500 shrink-0 select-none">{time}</span>
+                        <span className="text-muted-foreground shrink-0 select-none">{time}</span>
                         <span className={`${colorClass} break-words`}>{log.message}</span>
                       </div>
                     )
@@ -482,10 +482,10 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
 
         {/* Succès : liens vers les ressources */}
         {jobStatus === "completed" && (
-          <div className="mt-4 p-4 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+          <div className="mt-4 p-4 rounded-md bg-success/10 border border-success/20">
             <div className="flex items-center gap-2 mb-3">
-              <PartyPopper className="h-5 w-5 text-emerald-500" />
-              <p className="text-sm text-emerald-500 font-medium">
+              <PartyPopper className="h-5 w-5 text-success" />
+              <p className="text-sm text-success font-medium">
                 Projet créé avec succès !
               </p>
             </div>

@@ -46,16 +46,16 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="border-border/50">
+    <Card className="border border-border/50 shadow-lg">
       <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4 pt-6">
+        <CardContent className="space-y-5 pt-6">
           {error && (
-            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
               {error}
             </div>
           )}
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email" className="text-sm font-medium">Email</Label>
             <Input
               id="email"
               type="email"
@@ -65,10 +65,11 @@ export function LoginForm() {
               required
               autoComplete="email"
               disabled={loading}
+              className="h-10"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Mot de passe</Label>
+            <Label htmlFor="password" className="text-sm font-medium">Mot de passe</Label>
             <Input
               id="password"
               type="password"
@@ -77,11 +78,12 @@ export function LoginForm() {
               required
               autoComplete="current-password"
               disabled={loading}
+              className="h-10"
             />
           </div>
         </CardContent>
-        <CardFooter>
-          <Button type="submit" className="w-full" disabled={loading}>
+        <CardFooter className="pt-2">
+          <Button type="submit" className="w-full h-10" disabled={loading}>
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

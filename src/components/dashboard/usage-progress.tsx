@@ -19,21 +19,21 @@ export function UsageProgress({ label, value, className }: UsageProgressProps) {
       ? "bg-red-500"
       : value >= 70
         ? "bg-amber-500"
-        : "bg-emerald-500"
+        : "bg-success"
 
   const isWarning = value >= 70
   const isCritical = value >= 90
 
   return (
-    <div className={cn("space-y-1", className)}>
-      <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center gap-1.5">
+    <div className={cn("space-y-2", className)}>
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-2">
           <span className="text-muted-foreground">{label}</span>
           {isCritical && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <AlertTriangle className="h-3 w-3 text-red-500" />
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Limite critique atteinte - Risque de dépassement</p>
@@ -45,7 +45,7 @@ export function UsageProgress({ label, value, className }: UsageProgressProps) {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <AlertTriangle className="h-3 w-3 text-amber-500" />
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Approche de la limite - Surveiller l&apos;utilisation</p>
@@ -56,15 +56,15 @@ export function UsageProgress({ label, value, className }: UsageProgressProps) {
         </div>
         <span
           className={cn(
-            "font-medium",
-            isCritical && "text-red-500",
-            isWarning && !isCritical && "text-amber-500"
+            "font-medium text-foreground",
+            isCritical && "text-red-600",
+            isWarning && !isCritical && "text-amber-600"
           )}
         >
           {value}%
         </span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-secondary">
+      <div className="h-1.5 w-full rounded-full bg-muted">
         <div
           className={cn("h-full rounded-full transition-all", color)}
           style={{ width: `${Math.min(value, 100)}%` }}

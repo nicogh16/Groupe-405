@@ -60,9 +60,9 @@ export function EdgeFunctionStatus() {
 
   if (status === "deployed") {
     return (
-      <Alert className="border-emerald-500/20 bg-emerald-500/5">
-        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-        <AlertTitle className="text-emerald-500">Edge Function déployée</AlertTitle>
+      <Alert className="border-success/20 bg-success/5">
+        <CheckCircle2 className="h-4 w-4 text-success" />
+        <AlertTitle className="text-success">Edge Function déployée</AlertTitle>
         <AlertDescription className="text-sm text-muted-foreground">
           La fonction &quot;provision-client&quot; est disponible. Vous pouvez lancer un provisionnement.
         </AlertDescription>

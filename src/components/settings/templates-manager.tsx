@@ -760,9 +760,9 @@ function SchemaSection({ snapshot }: { snapshot: SchemaSnapshot | null }) {
       <div className="grid grid-cols-4 gap-3">
         {[
           { label: "Tables", count: totalTables, icon: TableIcon, color: "text-blue-500" },
-          { label: "Fonctions", count: totalFunctions, icon: FunctionSquare, color: "text-emerald-500" },
+          { label: "Fonctions", count: totalFunctions, icon: FunctionSquare, color: "text-success" },
           { label: "Views", count: totalViews, icon: Layers, color: "text-purple-500" },
-          { label: "Types", count: totalTypes, icon: Code2, color: "text-orange-500" },
+          { label: "Types", count: totalTypes, icon: Code2, color: "text-primary" },
         ].map(({ label, count, icon: Icon, color }) => (
           <div key={label} className="text-center p-3 rounded-lg border bg-card">
             <Icon className={`h-5 w-5 mx-auto mb-1 ${color}`} />
@@ -828,7 +828,7 @@ function SchemaSection({ snapshot }: { snapshot: SchemaSnapshot | null }) {
             className="w-full flex items-center justify-between p-3 bg-muted/30 hover:bg-muted/50 transition"
           >
             <div className="flex items-center gap-2">
-              <FunctionSquare className="h-4 w-4 text-emerald-500" />
+              <FunctionSquare className="h-4 w-4 text-success" />
               <span className="text-sm font-medium">Fonctions</span>
               <Badge variant="outline" className="text-[10px] font-mono">{schema}</Badge>
               <span className="text-xs text-muted-foreground">({fns.length})</span>
@@ -900,7 +900,7 @@ function SchemaSection({ snapshot }: { snapshot: SchemaSnapshot | null }) {
             className="w-full flex items-center justify-between p-3 bg-muted/30 hover:bg-muted/50 transition"
           >
             <div className="flex items-center gap-2">
-              <Code2 className="h-4 w-4 text-orange-500" />
+              <Code2 className="h-4 w-4 text-primary" />
               <span className="text-sm font-medium">Types personnalisés</span>
               <span className="text-xs text-muted-foreground">({snapshot.custom_types.length})</span>
             </div>
