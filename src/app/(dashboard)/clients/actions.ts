@@ -325,13 +325,11 @@ export async function restoreProjectDirectly(formData: FormData) {
     }
 
     // Construire la connection string
-    // Essayer d'abord avec le pooler (port 6543) pour les connexions depuis l'extérieur
-    // Si le pooler ne fonctionne pas, on peut basculer vers le port direct (5432)
-    // Format pooler (transaction mode): postgresql://postgres:[PASSWORD]@db.[PROJECT_REF].supabase.co:6543/postgres
-    // Format direct: postgresql://postgres:[PASSWORD]@db.[PROJECT_REF].supabase.co:5432/postgres
-    const connectionString = `postgresql://postgres:${encodeURIComponent(
+    // Utiliser le POOLER Supabase (IPv4) car le host direct n'a que de l'IPv6
+    // Format pooler: postgresql://postgres.[PROJECT_REF]:[PASSWORD]@aws-0-ca-central-1.pooler.supabase.com:6543/postgres
+    const connectionString = `postgresql://postgres.${projectRef}:${encodeURIComponent(
       dbPassword
-    )}@db.${projectRef}.supabase.co:6543/postgres`
+    )}@aws-0-ca-central-1.pooler.supabase.com:6543/postgres`
 
     // 🔸 Pour MyFidelity : exécuter fichier par fichier avec suivi
     if (useMyFidelityTemplate) {

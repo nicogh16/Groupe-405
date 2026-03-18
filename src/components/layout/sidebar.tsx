@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, Users, Settings, DollarSign } from "lucide-react"
+import { LayoutDashboard, Users, Settings, DollarSign, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Logo } from "./logo"
 import Link from "next/link"
@@ -9,6 +9,7 @@ import Link from "next/link"
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Clients", href: "/clients", icon: Users },
+  { label: "Prospection", href: "/prospection", icon: Radar },
   { label: "Coûts & Marges", href: "/costs", icon: DollarSign },
   { label: "Paramètres", href: "/settings", icon: Settings },
 ]

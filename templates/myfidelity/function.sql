@@ -197,7 +197,7 @@ BEGIN
 
     RETURN COALESCE(NEW, OLD);
 END;
-$;
+$$;
 
 
 
@@ -423,7 +423,7 @@ BEGIN
 
     RETURN QUERY SELECT v_anomaly_count, v_anomalies;
 END;
-$;
+$$;
 
 
 
@@ -489,7 +489,7 @@ BEGIN
         )
     );
 END;
-$;
+$$;
 
 
 
@@ -548,7 +548,7 @@ BEGIN
 
     RETURN v_anomaly_id;
 END;
-$;
+$$;
 
 
 
@@ -591,7 +591,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -656,7 +656,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -786,7 +786,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -889,7 +889,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -906,7 +906,7 @@ begin
   refresh materialized view mv.mv_offers;
   return null;
 end;
-$;
+$$;
 
 
 
@@ -922,7 +922,7 @@ begin
   refresh materialized view mv.mv_restaurants;
   return null;
 end;
-$;
+$$;
 
 
 CREATE FUNCTION postgre_rpc.get_notification_tokens(p_email text DEFAULT NULL::text, p_role public.user_role DEFAULT NULL::public.user_role) RETURNS TABLE(notification_token text, user_id uuid, device_type text)
@@ -950,7 +950,7 @@ BEGIN
         AND t.notification_token IS NOT NULL
         AND t.notification_token <> '';
 END;
-$;
+$$;
 
 
 
@@ -976,7 +976,7 @@ BEGIN
     FROM private.users u
     WHERE u.id = p_user_id; -- UUID typé = protection injection SQL
 END;
-$;
+$$;
 
 
 
@@ -1051,7 +1051,7 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
     RAISE EXCEPTION '%', SQLERRM;
 END;
-$;
+$$;
 
 
 
@@ -1102,7 +1102,7 @@ BEGIN
         private.transactions.items,
         private.transactions.points;
 END;
-$;
+$$;
 
 
 
@@ -1129,7 +1129,7 @@ BEGIN
     WHERE t.user_id = p_user_id AND t.status = 'en_attente'
     ORDER BY t.date DESC;
 END;
-$;
+$$;
 
 
 
@@ -1187,7 +1187,7 @@ BEGIN
     -- Pour l'instant, on retourne true (l'implémentation réelle devrait utiliser l'API Auth)
     RETURN true;
 END;
-$;
+$$;
 
 
 
@@ -1230,7 +1230,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$_$;
 
 
 
@@ -1286,7 +1286,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -1601,7 +1601,7 @@ EXCEPTION WHEN OTHERS THEN
     )
   );
 END;
-$;
+$$;
 
 
 
@@ -1687,7 +1687,7 @@ BEGIN
 
   RETURN '';
 END;
-$;
+$$;
 
 
 
@@ -1794,7 +1794,7 @@ EXCEPTION WHEN OTHERS THEN
 
   RETURN false;
 END;
-$;
+$$;
 
 
 
@@ -1855,7 +1855,7 @@ BEGIN
 
   RETURN file_name;
 END;
-$;
+$$;
 
 
 
@@ -1872,12 +1872,11 @@ CREATE FUNCTION private.get_user_pg_role(user_id uuid) RETURNS text
             WHEN u.role = 'superadmin' THEN 'app_superadmin'
             WHEN u.role = 'administrateur' THEN 'app_admin'
             WHEN u.role = 'caissier' THEN 'app_cashier'
-            WHEN u.role = 'marketing' THEN 'app_marketing'
             ELSE 'app_user'
         END
     FROM private.users u
     WHERE u.id = user_id;
-$;
+$$;
 
 
 
@@ -1938,7 +1937,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -1963,7 +1962,7 @@ BEGIN
 
   RETURN v_caller_role IN ('administrateur'::user_role, 'superadmin'::user_role);
 END;
-$;
+$$;
 
 
 
@@ -2064,7 +2063,7 @@ BEGIN
     RAISE NOTICE '[is_open_now] Aucun horaire applicable trouvé, restaurant fermé par défaut';
     RETURN false;
 END;
-$;
+$$;
 
 
 
@@ -2117,7 +2116,7 @@ EXCEPTION WHEN OTHERS THEN
     -- En cas d'erreur, on log mais on ne bloque pas l'appel principal
     RAISE LOG 'Erreur lors de l''enregistrement des stats d''accès pour user_id % : %', p_user_id, SQLERRM;
 END;
-$;
+$$;
 
 
 
@@ -2146,7 +2145,7 @@ BEGIN
     -- Note: Dans une configuration de production, ceci devrait insérer dans une table d'audit
     -- Pour l'instant, on utilise RAISE NOTICE pour tracer dans les logs PostgreSQL
 END;
-$;
+$$;
 
 
 
@@ -2182,7 +2181,7 @@ BEGIN
     -- Note: Dans une configuration de production, ceci devrait insérer dans une table d'audit
     -- Pour l'instant, on utilise RAISE NOTICE pour tracer dans les logs PostgreSQL
 END;
-$;
+$$;
 
 
 
@@ -2236,7 +2235,7 @@ EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'send_feedback_to_make: %', SQLERRM;
   RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -2265,7 +2264,7 @@ BEGIN
     NEW.updated_at = now();
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -2288,7 +2287,7 @@ BEGIN
     WHERE id = r.id;
   END LOOP;
 END;
-$;
+$$;
 
 
 
@@ -2404,7 +2403,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -2437,7 +2436,7 @@ BEGIN
     NEW.restaurant_menu_url := private.current_week_menu_url_from_jsonb(COALESCE(NEW.restaurant_menu_url_jsonb, '[]'::jsonb));
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -2508,7 +2507,7 @@ EXCEPTION WHEN OTHERS THEN
     RAISE WARNING '[Notification Error] %', SQLERRM;
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -2520,11 +2519,10 @@ DECLARE
     user_role text;
     role_hierarchy jsonb;
 BEGIN
-    -- Hiérarchie des rôles (superadmin > admin > marketing > cashier > user)
+    -- Hiérarchie des rôles (superadmin > admin > cashier > user)
     role_hierarchy := '{
         "app_superadmin": 5,
         "app_admin": 4,
-        "app_marketing": 3,
         "app_cashier": 2,
         "app_user": 1
     }'::jsonb;
@@ -2544,7 +2542,7 @@ EXCEPTION
         -- En cas d'erreur, refuser l'accès
         RETURN false;
 END;
-$;
+$$;
 
 
 
@@ -2555,7 +2553,7 @@ COMMENT ON FUNCTION private.user_has_role(required_role text) IS 'Vérifie si l'
 CREATE FUNCTION private.validate_email_format(p_email text) RETURNS boolean
     LANGUAGE plpgsql IMMUTABLE
     SET search_path TO 'private'
-    AS $_$
+    AS $$
 BEGIN
     -- Validation basique du format email
     IF p_email IS NULL OR length(trim(p_email)) = 0 THEN
@@ -2574,7 +2572,7 @@ BEGIN
 
     RETURN true;
 END;
-$;
+$$;
 
 
 
@@ -2602,7 +2600,7 @@ EXCEPTION
         RAISE WARNING 'Erreur lors de la validation de la couleur: %', SQLERRM;
         RETURN false;
 END;
-$;
+$_$;
 
 
 
@@ -2629,7 +2627,7 @@ BEGIN
     -- Retourner tel quel (la structure est validée par l'application)
     RETURN p_settings;
 END;
-$;
+$$;
 
 
 
@@ -2679,7 +2677,7 @@ EXCEPTION
         RAISE WARNING 'Erreur lors de la validation du texte: %', SQLERRM;
         RETURN false;
 END;
-$;
+$$;
 
 
 
@@ -2810,7 +2808,7 @@ BEGIN
             RETURN v_cleaned;
     END CASE;
 END;
-$;
+$_$;
 
 
 
@@ -2849,7 +2847,7 @@ BEGIN
     (SELECT count(*)::int FROM updated),
     (SELECT array_agg(id) FROM updated);
 END;
-$;
+$$;
 
 
 
@@ -2935,7 +2933,7 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
     RAISE;
 END;
-$;
+$$;
 
 
 
@@ -2976,7 +2974,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -3048,7 +3046,7 @@ EXCEPTION
         -- RAISE NOTICE 'Erreur dans cancel_pending_transaction: %', SQLERRM;
         RETURN QUERY SELECT false;
 END;
-$;
+$$;
 
 
 
@@ -3139,7 +3137,7 @@ BEGIN
 
     RETURN new_article;
 END;
-$;
+$$;
 
 
 
@@ -3209,7 +3207,7 @@ BEGIN
 
     RETURN new_offer;
 END;
-$;
+$$;
 
 
 
@@ -3346,7 +3344,7 @@ EXCEPTION
   WHEN OTHERS THEN
     RETURN json_build_object('error', SQLERRM);
 END;
-$;
+$$;
 
 
 
@@ -3452,7 +3450,7 @@ EXCEPTION
   WHEN OTHERS THEN
     RETURN json_build_object('error', SQLERRM);
 END;
-$;
+$$;
 
 CREATE FUNCTION public.create_restaurant(new_data jsonb) RETURNS private.restaurants
     LANGUAGE plpgsql SECURITY DEFINER
@@ -3468,12 +3466,12 @@ BEGIN
     END IF;
 
     -- B. NIVEAU 2 : SÉCURITÉ - Vérification du rôle dans la table de vérité (private.users)
-    -- On inclut 'marketing' comme tu l'as spécifié dans ton code source.
+    -- On inclut  comme tu l'as spécifié dans ton code source.
     SELECT role::text INTO v_caller_role
     FROM private.users
     WHERE id = auth.uid();
 
-    IF v_caller_role NOT IN ('superadmin', 'administrateur', 'marketing') OR v_caller_role IS NULL THEN
+    IF v_caller_role NOT IN ('superadmin', 'administrateur') OR v_caller_role IS NULL THEN
         RAISE EXCEPTION '403: Forbidden - Seuls les administrateurs peuvent créer des restaurants.'
         USING ERRCODE = '42501';
     END IF;
@@ -3532,7 +3530,7 @@ BEGIN
 
     RETURN new_restaurant;
 END;
-$;
+$$;
 
 
 
@@ -3581,7 +3579,7 @@ BEGIN
 
   RAISE NOTICE '[cron] Succès de la chaîne d''activation (Request ID: %)', v_request_id;
 END;
-$;
+$$;
 
 
 
@@ -3657,7 +3655,7 @@ BEGIN
 
     RETURN true;
 END;
-$;
+$$;
 
 
 
@@ -3730,7 +3728,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$;
+$$;
 
 
 
@@ -3825,7 +3823,7 @@ BEGIN
 
     RETURN true;
 END;
-$;
+$$;
 
 
 
@@ -3903,7 +3901,7 @@ BEGIN
         'image_deleted', image_deleted
     );
 END;
-$;
+$$;
 
 
 
@@ -3931,7 +3929,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM private.users
         WHERE id = auth.uid()
-        AND role IN ('superadmin', 'administrateur', 'marketing')
+        AND role IN ('superadmin', 'administrateur')
     ) THEN
         RETURN json_build_object('error', 'Permission refusée : droits insuffisants');
     END IF;
@@ -3988,7 +3986,7 @@ EXCEPTION
     WHEN OTHERS THEN
         RETURN json_build_object('error', SQLERRM);
 END;
-$;
+$$;
 
 
 
@@ -4066,7 +4064,7 @@ BEGIN
     'message', format('%s restaurant(s) supprimé(s) avec succès (%s image(s) supprimée(s))', deleted_count, deleted_images_count)
   );
 END;
-$;
+$$;
 
 
 
@@ -4149,7 +4147,7 @@ BEGIN
 
     RETURN result;
 END;
-$;
+$$;
 
 
 
@@ -4204,7 +4202,7 @@ BEGIN
     WHERE o.is_active = true
     ORDER BY o.created_at DESC;
 END;
-$;
+$$;
 
 
 
@@ -4266,7 +4264,7 @@ BEGIN
   AND (p.expires_at IS NULL OR p.expires_at > NOW())
   ORDER BY p.created_at DESC;
 END;
-$;
+$$;
 
 
 
@@ -4362,7 +4360,7 @@ EXCEPTION WHEN OTHERS THEN
     RAISE LOG 'Erreur dans get_app_boot_data : %', SQLERRM;
     RAISE EXCEPTION 'Erreur interne lors du chargement des données (Code: %)', SQLSTATE;
 END;
-$;
+$$;
 
 
 
@@ -4399,7 +4397,7 @@ BEGIN
     -- D. RETOUR : Garantit un résultat numérique (0 par défaut)
     RETURN COALESCE(v_count, 0);
 END;
-$;
+$$;
 
 
 
@@ -4427,7 +4425,7 @@ BEGIN
     a.restaurant_names
   FROM dashboard_view.articles a;
 END;
-$;
+$$;
 
 
 
@@ -4463,7 +4461,7 @@ BEGIN
 
     -- NIVEAU 3 : Construction du Payload selon le rôle
     -- Si l'utilisateur est admin ou marketing, on charge la première page uniquement (50 users)
-    IF v_caller_role IN ('administrateur'::user_role, 'marketing'::user_role) THEN
+    IF v_caller_role IN ('administrateur'::user_role) THEN
 
         -- Récupérer tous les IDs d'utilisateurs (membre/utilisateur) pour calculer unverified_count
         SELECT array_agg(id) INTO v_all_user_ids
@@ -4679,7 +4677,7 @@ EXCEPTION
         -- Re-lancer l'exception pour que PostgREST puisse la gérer
         RAISE;
 END;
-$;
+$$;
 
 
 
@@ -4710,7 +4708,7 @@ BEGIN
     AND d.day <= v_end_date
   ORDER BY d.day DESC;
 END;
-$;
+$$;
 
 
 
@@ -4745,7 +4743,7 @@ BEGIN
     AND e.date <= v_end_date
   ORDER BY e.date DESC, e.usage_count DESC;
 END;
-$;
+$$;
 
 
 
@@ -4781,7 +4779,7 @@ BEGIN
         ) t
     );
 END;
-$;
+$$;
 
 
 
@@ -4803,8 +4801,8 @@ BEGIN
     RAISE EXCEPTION '403: Forbidden - Profil inexistant' USING ERRCODE = '42501';
   END IF;
 
-  IF v_caller_role NOT IN ('administrateur', 'marketing') THEN
-    RAISE EXCEPTION '403: Forbidden - Accès réservé aux administrateurs/marketing' USING ERRCODE = '42501';
+  IF v_caller_role NOT IN ('administrateur') THEN
+    RAISE EXCEPTION '403: Forbidden - Accès réservé aux administrateurs' USING ERRCODE = '42501';
   END IF;
 
   SELECT count(*)::integer
@@ -4814,7 +4812,7 @@ BEGIN
 
   RETURN v_count;
 END;
-$;
+$$;
 
 
 
@@ -4847,7 +4845,7 @@ BEGIN
         ) t
     );
 END;
-$;
+$$;
 
 
 
@@ -4878,7 +4876,7 @@ BEGIN
     AND o.day <= v_end_date
   ORDER BY o.day DESC, o.usage_count DESC;
 END;
-$;
+$$;
 
 
 
@@ -5005,7 +5003,7 @@ BEGIN
     'eco_gestes_by_type', coalesce(v_eco_gestes_by_type, '[]'::jsonb)
   );
 END;
-$;
+$$;
 
 
 
@@ -5044,7 +5042,7 @@ BEGIN
     FROM dashboard_view.restaurants r
     ORDER BY r.boosted DESC, r.is_new DESC, r.name ASC;
 END;
-$;
+$$;
 
 
 
@@ -5089,7 +5087,7 @@ BEGIN
     FROM dashboard_view.restaurants r
     ORDER BY r.boosted DESC, r.is_new DESC, r.name ASC;
 END;
-$;
+$$;
 
 
 
@@ -5292,7 +5290,7 @@ EXCEPTION
     RAISE WARNING 'Erreur dans get_dashboard_users_page: %', SQLERRM;
     RAISE;
 END;
-$;
+$$;
 
 
 
@@ -5330,7 +5328,7 @@ BEGIN
     AND v.date <= end_date::date
   ORDER BY v.date, v.eco_geste_name;
 END;
-$;
+$$;
 
 
 
@@ -5395,7 +5393,7 @@ BEGIN
   GROUP BY v.eco_geste_name
   ORDER BY count DESC;
 END;
-$;
+$$;
 
 
 
@@ -5442,7 +5440,7 @@ BEGIN
         ) AS restaurants
     FROM private.articles a;
 END;
-$;
+$$;
 
 
 
@@ -5500,7 +5498,7 @@ BEGIN
   ORDER BY f.created_at DESC
   LIMIT 50;
 END;
-$;
+$$;
 
 
 
@@ -5531,7 +5529,7 @@ BEGIN
     -- Retourne les réglages ou un objet JSON vide par défaut
     RETURN COALESCE(v_settings, '{}'::jsonb);
 END;
-$;
+$$;
 
 
 
@@ -5564,7 +5562,7 @@ BEGIN
         ) t
     );
 END;
-$;
+$$;
 
 
 
@@ -5615,7 +5613,7 @@ BEGIN
     AND t.notification_token IS NOT NULL
     AND t.notification_token <> '';
 END;
-$;
+$$;
 
 
 
@@ -5662,7 +5660,7 @@ BEGIN
   GROUP BY COALESCE(o.offer_title, o.offer_id)
   ORDER BY count DESC;
 END;
-$;
+$$;
 
 
 
@@ -5705,7 +5703,7 @@ BEGIN
         ) t
     );
 END;
-$;
+$$;
 
 
 
@@ -5742,7 +5740,7 @@ BEGIN
         ) t
     );
 END;
-$;
+$$;
 
 
 
@@ -5815,7 +5813,7 @@ BEGIN
   FROM base b
   ORDER BY b.transaction_date, b.restaurant_id;
 END;
-$;
+$$;
 
 
 
@@ -5906,7 +5904,7 @@ BEGIN
   FROM aggregated a
   ORDER BY a.period_start, a.restaurant_id;
 END;
-$;
+$$;
 
 
 
@@ -5950,7 +5948,7 @@ BEGIN
   GROUP BY t.restaurant_id, extract(dow from t.date::date)
   ORDER BY t.restaurant_id, dow;
 END;
-$;
+$$;
 
 
 
@@ -6023,7 +6021,7 @@ BEGIN
     ORDER BY r.date DESC;
 
 END;
-$;
+$$;
 
 
 
@@ -6184,7 +6182,7 @@ BEGIN
 
   RETURN result;
 END;
-$;
+$$;
 
 
 
@@ -6224,8 +6222,8 @@ BEGIN
             RAISE EXCEPTION '403: Forbidden - Profil inexistant' USING ERRCODE = '42501';
         END IF;
 
-        IF v_caller_role NOT IN ('administrateur', 'superadmin', 'marketing') THEN
-            RAISE EXCEPTION '403: Forbidden - Rôle insuffisant. Rôle requis: administrateur ou marketing. Rôle actuel: %', v_caller_role USING ERRCODE = '42501';
+        IF v_caller_role NOT IN ('administrateur', 'superadmin') THEN
+            RAISE EXCEPTION '403: Forbidden - Rôle insuffisant. Rôle requis: administrateur. Rôle actuel: %', v_caller_role USING ERRCODE = '42501';
         END IF;
     END IF;
 
@@ -6254,11 +6252,11 @@ EXCEPTION
         RAISE WARNING 'Erreur dans get_verification_status: %', SQLERRM;
         RAISE EXCEPTION '500: Internal Server Error' USING ERRCODE = 'P0002';
 END;
-$;
+$$;
 
 
 
-COMMENT ON FUNCTION public.get_verification_status(p_user_ids uuid[]) IS 'Récupère le statut de vérification email pour une liste d''utilisateurs. Réservé aux administrateurs et marketing. Limite: 500 IDs maximum.';
+COMMENT ON FUNCTION public.get_verification_status(p_user_ids uuid[]) IS 'Récupère le statut de vérification email pour une liste d''utilisateurs. Réservé aux administrateurs. Limite: 500 IDs maximum.';
 
 
 
@@ -6284,7 +6282,7 @@ BEGIN
   -- 🛡️ SÉCURITÉ : Uniquement administrateur ou superadmin
   RETURN v_user_role IN ('administrateur'::user_role, 'superadmin'::user_role);
 END;
-$;
+$$;
 
 
 
@@ -6304,7 +6302,7 @@ BEGIN
         AND role = 'administrateur'
     );
 END;
-$;
+$$;
 
 
 
@@ -6333,7 +6331,7 @@ BEGIN
 
   RETURN v_user_role = 'administrateur'::user_role;
 END;
-$;
+$$;
 
 
 
@@ -6359,7 +6357,7 @@ BEGIN
   -- 🛡️ SÉCURITÉ : Uniquement administrateur ou superadmin (explicite, pas de logique négative)
   RETURN v_user_role IN ('administrateur'::user_role, 'superadmin'::user_role);
 END;
-$;
+$$;
 
 
 
@@ -6368,7 +6366,7 @@ CREATE FUNCTION public.isoweek_start(input_date date) RETURNS date
     SET search_path TO 'public'
     AS $$
   select (date_trunc('week', input_date + interval '1 day') - interval '1 day')::date;
-$;
+$$;
 
 
 
@@ -6452,7 +6450,7 @@ BEGIN
 
   RETURN v_error_id;
 END;
-$;
+$_$;
 
 
 
@@ -6516,7 +6514,7 @@ BEGIN
     RETURN false;
   END IF;
 END;
-$;
+$$;
 
 
 
@@ -6561,7 +6559,7 @@ BEGIN
 
   RETURN COALESCE(updated_special_hours, '[]'::jsonb);
 END;
-$;
+$$;
 
 
 
@@ -6614,7 +6612,7 @@ BEGIN
 
     RETURN true;
 END;
-$;
+$$;
 
 
 
@@ -6648,7 +6646,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -6700,7 +6698,7 @@ EXCEPTION WHEN OTHERS THEN
         'message', 'Erreur lors de la mise à jour du statut de l''offre'
     );
 END;
-$;
+$$;
 
 
 
@@ -6842,7 +6840,7 @@ EXCEPTION
             'error_code', 'INTERNAL_ERROR'
         );
 END;
-$;
+$$;
 
 
 
@@ -6892,7 +6890,7 @@ BEGIN
 
   RETURN v_id;
 END;
-$;
+$$;
 
 
 
@@ -6919,7 +6917,7 @@ BEGIN
 
   PERFORM private.sync_restaurant_menu_url_current(NULL);
 END;
-$;
+$$;
 
 
 
@@ -7031,7 +7029,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -7140,7 +7138,7 @@ BEGIN
 
     RETURN updated_article;
 END;
-$;
+$$;
 
 
 
@@ -7192,7 +7190,7 @@ BEGIN
 
     RETURN v_merged_settings;
 END;
-$;
+$$;
 
 
 
@@ -7222,7 +7220,7 @@ BEGIN
     enabled = EXCLUDED.enabled,
     updated_at = now();
 END;
-$;
+$$;
 
 
 
@@ -7294,7 +7292,7 @@ EXCEPTION WHEN OTHERS THEN
     -- On renvoie l'erreur pour ton script d'audit
     RAISE EXCEPTION '%', SQLERRM USING ERRCODE = 'P0001';
 END;
-$;
+$_$;
 
 
 
@@ -7389,7 +7387,7 @@ BEGIN
 
     RETURN updated_offer;
 END;
-$;
+$$;
 
 
 
@@ -7558,7 +7556,7 @@ EXCEPTION
   WHEN OTHERS THEN
     RETURN json_build_object('error', SQLERRM);
 END;
-$;
+$$;
 
 
 
@@ -7605,7 +7603,7 @@ BEGIN
 
   RETURN v_updated;
 END;
-$;
+$$;
 
 
 
@@ -7750,7 +7748,7 @@ EXCEPTION
   WHEN OTHERS THEN
     RETURN json_build_object('error', SQLERRM);
 END;
-$;
+$$;
 
 
 
@@ -7797,7 +7795,7 @@ BEGIN
 
   RETURN v_updated;
 END;
-$;
+$$;
 
 
 
@@ -7893,7 +7891,7 @@ BEGIN
   RETURN QUERY
   SELECT * FROM private.restaurants WHERE id = p_restaurant_id;
 END;
-$;
+$$;
 
 
 
@@ -7970,7 +7968,7 @@ BEGIN
 
     RETURN true;
 END;
-$;
+$$;
 
 
 
@@ -7999,7 +7997,7 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$;
+$$;
 
 
 
@@ -8060,7 +8058,7 @@ EXCEPTION WHEN OTHERS THEN
     -- Si c'est autre chose (ex: colonne manquante), on affiche la VRAIE erreur
     RAISE EXCEPTION 'ERREUR SQL CRITIQUE : %', SQLERRM;
 END;
-$;
+$$;
 
 
 
@@ -8110,7 +8108,7 @@ EXCEPTION WHEN OTHERS THEN
     IF SQLSTATE = '22000' OR SQLSTATE = 'P0001' THEN RAISE; END IF;
     RAISE EXCEPTION 'ERREUR SQL : %', SQLERRM;
 END;
-$;
+$$;
 
 
 
@@ -8255,7 +8253,7 @@ EXCEPTION WHEN OTHERS THEN
         'error', 'Erreur lors de la mise à jour des points: ' || SQLERRM
     );
 END;
-$;
+$$;
 
 
 
@@ -8314,7 +8312,7 @@ BEGIN
     );
 
 END;
-$;
+$$;
 
 
 
@@ -8349,7 +8347,7 @@ BEGIN
     title = excluded.title,
     body = excluded.body;
 END;
-$;
+$$;
 
 
 
@@ -8399,7 +8397,7 @@ BEGIN
 
     RETURN 'email_not_confirmed';
 END;
-$;
+$$;
 
 
 
@@ -8425,7 +8423,7 @@ BEGIN
   -- 🛡️ SÉCURITÉ : Uniquement administrateur ou superadmin (PAS marketing)
   RETURN v_user_role IN ('administrateur'::user_role, 'superadmin'::user_role);
 END;
-$;
+$$;
 
 
 
@@ -8506,7 +8504,7 @@ BEGIN
 
     RETURN v_total_votes;
 END;
-$;
+$$;
 
 
 
@@ -8564,7 +8562,7 @@ BEGIN
     END
   ORDER BY MIN(COALESCE(access_count, 0));
 END;
-$;
+$$;
 
 
 
@@ -8591,7 +8589,7 @@ BEGIN
   GROUP BY DATE(t.date)
   ORDER BY date;
 END;
-$;
+$$;
 
 
 
@@ -8641,7 +8639,7 @@ BEGIN
 
   RETURN result;
 END;
-$;
+$$;
 
 
 
@@ -8686,7 +8684,7 @@ BEGIN
     END
   ORDER BY MIN(user_points);
 END;
-$;
+$$;
 
 
 
@@ -8728,7 +8726,7 @@ BEGIN
   FULL OUTER JOIN active_users_by_date a ON n.date = a.date
   ORDER BY date;
 END;
-$;
+$$;
 
 
 
@@ -8767,7 +8765,7 @@ BEGIN
 
   RETURN result;
 END;
-$;
+$$;
 
 
 
@@ -8826,7 +8824,7 @@ BEGIN
       ELSE 999
     END;
 END;
-$;
+$$;
 
 
 
@@ -8857,7 +8855,7 @@ BEGIN
   ORDER BY total_points_distributed DESC, transaction_count DESC
   LIMIT limit_count;
 END;
-$;
+$$;
 
 
 
@@ -8885,7 +8883,7 @@ BEGIN
   GROUP BY EXTRACT(HOUR FROM date)
   ORDER BY hour_of_day;
 END;
-$;
+$$;
 
 
 
@@ -8928,7 +8926,7 @@ BEGIN
     END
   ORDER BY MIN(points);
 END;
-$;
+$$;
 
 
 
@@ -8964,7 +8962,7 @@ BEGIN
   GROUP BY EXTRACT(DOW FROM accessed_at)
   ORDER BY day_of_week;
 END;
-$;
+$$;
 
 
 
@@ -8986,7 +8984,7 @@ BEGIN
         AND role = 'administrateur'
     );
 END;
-$;
+$$;
 
 
 
@@ -9256,15 +9254,15 @@ CREATE POLICY section_visibility_select_optimized ON public.section_visibility F
 CREATE POLICY section_visibility_update_admin ON public.section_visibility TO authenticated USING (private.user_has_role('app_admin'::text)) WITH CHECK (private.user_has_role('app_admin'::text));
 
 
-CREATE POLICY "Allow admin deletes for member cards" ON storage.objects FOR DELETE USING (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text) OR ((auth.jwt() ->> 'role'::text) = 'superadmin'::text) OR ((auth.jwt() ->> 'role'::text) = 'marketing'::text))));
+CREATE POLICY "Allow admin deletes for member cards" ON storage.objects FOR DELETE USING (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text))));
 
 
 
-CREATE POLICY "Allow admin updates for member cards" ON storage.objects FOR UPDATE USING (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text) OR ((auth.jwt() ->> 'role'::text) = 'superadmin'::text) OR ((auth.jwt() ->> 'role'::text) = 'marketing'::text)))) WITH CHECK (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text) OR ((auth.jwt() ->> 'role'::text) = 'superadmin'::text) OR ((auth.jwt() ->> 'role'::text) = 'marketing'::text))));
+CREATE POLICY "Allow admin updates for member cards" ON storage.objects FOR UPDATE USING (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text) OR ((auth.jwt() ->> 'role'::text) = 'superadmin'::text)))) WITH CHECK (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text) OR ((auth.jwt() ->> 'role'::text) = 'superadmin'::text))));
 
 
 
-CREATE POLICY "Allow admin uploads for member cards" ON storage.objects FOR INSERT WITH CHECK (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text) OR ((auth.jwt() ->> 'role'::text) = 'superadmin'::text) OR ((auth.jwt() ->> 'role'::text) = 'marketing'::text))));
+CREATE POLICY "Allow admin uploads for member cards" ON storage.objects FOR INSERT WITH CHECK (((bucket_id = 'member-card'::text) AND (((auth.jwt() ->> 'role'::text) = 'administrateur'::text) OR ((auth.jwt() ->> 'role'::text) = 'superadmin'::text))));
 
 
 
@@ -9291,7 +9289,7 @@ CREATE POLICY "polls-images-public-read" ON storage.objects FOR SELECT USING ((b
 
 CREATE POLICY app_access_stats_select_admin_only ON private.app_access_stats FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM private.users u
-  WHERE ((u.id = ( SELECT auth.uid() AS uid)) AND (u.role = ANY (ARRAY['administrateur'::public.user_role, 'superadmin'::public.user_role, 'marketing'::public.user_role]))))));
+  WHERE ((u.id = ( SELECT auth.uid() AS uid)) AND (u.role = ANY (ARRAY['administrateur'::public.user_role, 'superadmin'::public.user_role]))))));
 
 
 

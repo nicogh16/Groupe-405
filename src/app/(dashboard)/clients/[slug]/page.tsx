@@ -215,9 +215,12 @@ export default async function ClientDetailPage({
         {/* Liens et notes */}
         <div className="space-y-6">
           <LinksSection
+            clientId={client.id}
             supabaseProjectRef={client.supabase_project_ref}
+            supabaseUrl={client.supabase_url}
             vercelProjectUrl={client.vercel_project_url}
             githubRepoUrl={client.github_repo_url}
+            isAdmin={isAdmin}
           />
           <NotesEditor
             clientId={client.id}

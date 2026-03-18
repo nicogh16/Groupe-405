@@ -13,6 +13,19 @@ export const updateNotesSchema = z.object({
   notes: z.string().max(5000, "Notes trop longues"),
 })
 
+export const updateClientLinksSchema = z.object({
+  clientId: z.string().uuid("ID client invalide"),
+  supabaseProjectRef: z
+    .string()
+    .trim()
+    .max(64, "Project ref trop long")
+    .optional()
+    .or(z.literal("")),
+  supabaseUrl: z.string().url("URL Supabase invalide").optional().or(z.literal("")),
+  vercelProjectUrl: z.string().url("URL Vercel invalide").optional().or(z.literal("")),
+  githubRepoUrl: z.string().url("URL GitHub invalide").optional().or(z.literal("")),
+})
+
 export const createClientSchema = z.object({
   appId: z.string().uuid("ID app invalide"),
   name: z
@@ -55,6 +68,7 @@ export const deleteExpenseSchema = z.object({
 
 export type UpdateRevenueData = z.infer<typeof updateRevenueSchema>
 export type UpdateNotesData = z.infer<typeof updateNotesSchema>
+export type UpdateClientLinksData = z.infer<typeof updateClientLinksSchema>
 export type CreateClientData = z.infer<typeof createClientSchema>
 export type CreateExpenseData = z.infer<typeof createExpenseSchema>
 export type UpdateExpenseData = z.infer<typeof updateExpenseSchema>

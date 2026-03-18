@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server"
 import {
   updateRevenueSchema,
   updateNotesSchema,
+  updateClientLinksSchema,
   createExpenseSchema,
   updateExpenseSchema,
   deleteExpenseSchema,
@@ -97,6 +98,64 @@ export async function updateNotes(formData: FormData) {
   })
 
   revalidatePath("/")
+  return { success: true }
+}
+
+export async function updateClientLinks(formData: FormData) {
+  const { user, supabase } = await requireAdmin()
+
+  const supabaseUrlRaw = formData.get("supabaseUrl")
+
+  const parsed = updateClientLinksSchema.safeParse({
+    clientId: formData.get("clientId") as string,
+    supabaseProjectRef: (formData.get("supabaseProjectRef") as string) ?? "",
+    supabaseUrl: (supabaseUrlRaw as string) ?? undefined,
+    vercelProjectUrl: (formData.get("vercelProjectUrl") as string) ?? "",
+    githubRepoUrl: (formData.get("githubRepoUrl") as string) ?? "",
+  })
+
+  if (!parsed.success) {
+    const first = parsed.error.issues?.[0]?.message
+    return { error: first ?? "Données invalides" }
+  }
+
+  // IMPORTANT:
+  // - `clients.supabase_url` est utilisé par l'Edge Function `fetch-client-metrics` pour appeler les endpoints Supabase.
+  // - Donc si on reçoit `supabaseProjectRef`, on recalcule `supabase_url` à partir du project ref
+  //   (sinon on risque d'écraser supabase_url avec une URL de site web).
+  const updatePayload: Record<string, unknown> = {
+    supabase_project_ref: parsed.data.supabaseProjectRef || null,
+    vercel_project_url: parsed.data.vercelProjectUrl || null,
+    github_repo_url: parsed.data.githubRepoUrl || null,
+    updated_at: new Date().toISOString(),
+  }
+
+  if (parsed.data.supabaseProjectRef) {
+    updatePayload.supabase_url = `https://${parsed.data.supabaseProjectRef}.supabase.co`
+  } else if (supabaseUrlRaw !== null) {
+    updatePayload.supabase_url = parsed.data.supabaseUrl || null
+  }
+
+  const { error } = await supabase.from("clients").update(updatePayload).eq("id", parsed.data.clientId)
+
+  if (error) {
+    return { error: "Erreur lors de la mise à jour des liens" }
+  }
+
+  await supabase.from("audit_log").insert({
+    user_id: user.id,
+    action: "client_updated",
+    target_client_id: parsed.data.clientId,
+    details: { field: "links" },
+  })
+
+  const { data: client } = await supabase.from("clients").select("slug").eq("id", parsed.data.clientId).single()
+  if (client?.slug) {
+    revalidatePath(`/clients/${client.slug}`)
+  }
+  revalidatePath("/clients")
+  revalidatePath("/")
+
   return { success: true }
 }
 
