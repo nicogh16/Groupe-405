@@ -251,49 +251,467 @@ export async function restoreProjectDirectly(formData: FormData) {
   }
 
   try {
-    // Lire le fichier SQL template
-    const templateFileName = useMyFidelityTemplate 
-      ? "supabase_new_project.sql"
-      : "supabase-template-zdicqtupwckhvxhlkiuf.sql"
+    let templateSQL: string = ""
 
-    // Lire depuis Storage Supabase avec service role key
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (useMyFidelityTemplate) {
+      // 🔹 Cas MyFidelity : lire les fichiers SQL splités dans le bon ordre
+      //    Groupe-405/templates/myfidelity/{init.sql, table.sql, view-mv.sql, function.sql}
+      const fs = await import("fs/promises")
+      const path = await import("path")
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return { 
-        error: "SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY doivent être configurés dans les variables d'environnement" 
+      const baseDir = path.join(process.cwd(), "templates", "myfidelity")
+      const filesInOrder = ["init.sql", "table.sql", "view-mv.sql", "function.sql"]
+
+      try {
+        console.log("[RESTORE] MyFidelity - lecture des fichiers SQL splités...")
+        const filesWithContent: { name: string; sql: string }[] = []
+
+        for (const fileName of filesInOrder) {
+          const filePath = path.join(baseDir, fileName)
+          try {
+            const content = await fs.readFile(filePath, "utf8")
+            console.log(`[RESTORE] MyFidelity - fichier chargé: ${fileName} (longueur: ${content.length})`)
+            filesWithContent.push({ name: fileName, sql: content })
+          } catch (fileErr) {
+            console.error(`[RESTORE] MyFidelity - erreur de lecture du fichier ${fileName}:`, fileErr)
+            return {
+              error: `Impossible de lire le fichier templates/myfidelity/${fileName}. Vérifiez qu'il existe bien dans le dossier templates/myfidelity.`,
+            }
+          }
+        }
+
+        // On ne concatène plus ici : on garde les fichiers séparés pour un suivi par fichier
+        // On stocke la liste dans une variable locale pour l'utiliser plus bas
+        ;(globalThis as any).__MYF_FILES__ = filesWithContent
+      } catch (err) {
+        console.error("Erreur lecture des fichiers MyFidelity splités:", err)
+        return {
+          error:
+            "Erreur lors de la lecture des fichiers SQL MyFidelity dans templates/myfidelity. Vérifiez que les fichiers init.sql, table.sql, view-mv.sql et function.sql existent.",
+        }
       }
-    }
+    } else {
+      // 🔹 Cas template générique : on continue d'utiliser le Storage Supabase
+      const templateFileName = "supabase-template-zdicqtupwckhvxhlkiuf.sql"
 
-    // Créer un client avec service role key pour accéder au Storage
-    const { createClient: createSupabaseClient } = await import("@supabase/supabase-js")
-    const storageClient = createSupabaseClient(supabaseUrl, supabaseServiceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-    const { data: fileData, error: storageError } = await storageClient
-      .storage
-      .from("templates")
-      .download(templateFileName)
-
-    if (storageError || !fileData) {
-      return { 
-        error: `Fichier template introuvable dans Storage: ${templateFileName}. ${storageError?.message || ""}. Assurez-vous que le fichier est uploadé dans le bucket "templates".` 
+      if (!supabaseUrl || !supabaseServiceKey) {
+        return {
+          error:
+            "SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY doivent être configurés dans les variables d'environnement"
+        }
       }
-    }
 
-    // Convertir le Blob en texte
-    const templateSQL = await fileData.text()
+      const { createClient: createSupabaseClient } = await import("@supabase/supabase-js")
+      const storageClient = createSupabaseClient(supabaseUrl, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      })
+
+      const { data: fileData, error: storageError } = await storageClient.storage
+        .from("templates")
+        .download(templateFileName)
+
+      if (storageError || !fileData) {
+        return {
+          error:
+            `Fichier template introuvable dans Storage: ${templateFileName}. ${storageError?.message || ""}. ` +
+            'Assurez-vous que le fichier est uploadé dans le bucket "templates".',
+        }
+      }
+
+      templateSQL = await fileData.text()
+    }
 
     // Construire la connection string
-    const connectionString = `postgresql://postgres:${encodeURIComponent(dbPassword)}@db.${projectRef}.supabase.co:5432/postgres`
+    // Essayer d'abord avec le pooler (port 6543) pour les connexions depuis l'extérieur
+    // Si le pooler ne fonctionne pas, on peut basculer vers le port direct (5432)
+    // Format pooler (transaction mode): postgresql://postgres:[PASSWORD]@db.[PROJECT_REF].supabase.co:6543/postgres
+    // Format direct: postgresql://postgres:[PASSWORD]@db.[PROJECT_REF].supabase.co:5432/postgres
+    const connectionString = `postgresql://postgres:${encodeURIComponent(
+      dbPassword
+    )}@db.${projectRef}.supabase.co:6543/postgres`
 
+    // 🔸 Pour MyFidelity : exécuter fichier par fichier avec suivi
+    if (useMyFidelityTemplate) {
+      const filesWithContent: { name: string; sql: string }[] =
+        ((globalThis as any).__MYF_FILES__ as { name: string; sql: string }[]) || []
+
+      if (!filesWithContent.length) {
+        return {
+          error:
+            "Aucun fichier MyFidelity trouvé en mémoire. Vérifiez les fichiers dans templates/myfidelity.",
+        }
+      }
+
+      const fileResults: {
+        file: string
+        success: boolean
+        message?: string
+        error?: string
+      }[] = []
+
+      // Essayer d'abord avec psql (dev local) / sinon pg, fichier par fichier
+      const psqlAvailable = await checkPsqlAvailable()
+
+      for (const file of filesWithContent) {
+        console.log(`[RESTORE] MyFidelity - exécution du fichier: ${file.name}`)
+
+        // Pour function.sql, utiliser TOUJOURS pg car psql -f a des problèmes avec les fonctions complexes
+        // Les autres fichiers peuvent utiliser psql si disponible
+        const usePgForThisFile = file.name === "function.sql" || !psqlAvailable
+
+        if (usePgForThisFile) {
+          // Utiliser pg (node-postgres) - gère mieux les fonctions complexes avec DECLARE
+          console.log(`[RESTORE] MyFidelity - utilisation de pg pour ${file.name} (fichier complexe ou psql non disponible)`)
+          const result = await executeRawSQLWithPg(projectRef, connectionString, file.sql)
+
+          if (result.error) {
+            console.error(`[RESTORE] MyFidelity - erreur pg sur ${file.name}:`, result.error)
+            fileResults.push({
+              file: file.name,
+              success: false,
+              error: result.error,
+            })
+
+            return {
+              error: `Erreur lors de l'exécution du fichier ${file.name}: ${result.error}`,
+              details: fileResults,
+            }
+          }
+
+          fileResults.push({
+            file: file.name,
+            success: true,
+            message: result.message || "Exécuté via pg",
+          })
+        } else {
+          // Utiliser psql pour les fichiers simples (init.sql, table.sql, view-mv.sql)
+          const result = await executeRawSQLWithPsql(projectRef, connectionString, file.sql, dbPassword)
+          
+          // Si psql échoue, basculer vers pg
+          if (result.error && (result as any).fallback) {
+            console.log(`[RESTORE] MyFidelity - psql non disponible pour ${file.name}, utilisation de pg...`)
+            const pgResult = await executeRawSQLWithPg(projectRef, connectionString, file.sql)
+            
+            if (pgResult.error) {
+              console.error(`[RESTORE] MyFidelity - erreur pg sur ${file.name}:`, pgResult.error)
+              fileResults.push({
+                file: file.name,
+                success: false,
+                error: pgResult.error,
+              })
+              return {
+                error: `Erreur lors de l'exécution du fichier ${file.name}: ${pgResult.error}`,
+                details: fileResults,
+              }
+            }
+            
+            fileResults.push({
+              file: file.name,
+              success: true,
+              message: pgResult.message || "Exécuté via pg (fallback)",
+            })
+          } else if (result.error) {
+            console.error(`[RESTORE] MyFidelity - erreur psql sur ${file.name}:`, result.error)
+            fileResults.push({
+              file: file.name,
+              success: false,
+              error: result.error,
+            })
+            return {
+              error: `Erreur lors de l'exécution du fichier ${file.name}: ${result.error}`,
+              details: fileResults,
+            }
+          } else {
+            fileResults.push({
+              file: file.name,
+              success: true,
+              message: result.message || "Exécuté via psql (outil natif)",
+            })
+          }
+        }
+      }
+
+      return {
+        success: true,
+        message: "Restauration MyFidelity terminée avec succès (tous les fichiers exécutés)",
+        details: fileResults,
+      }
+    }
+
+    // 🔸 Pour les autres templates : parser en statements
     return await executeRestore(projectRef, connectionString, templateSQL, supabase)
   } catch (error) {
     console.error("Erreur lors de la restauration:", error)
     return { 
       error: error instanceof Error ? error.message : "Erreur inconnue lors de la restauration" 
+    }
+  }
+}
+
+
+// Exécution raw avec pg (node-postgres) - méthode simple : envoie TOUT le fichier d'un coup
+// Le driver pg accepte l'exécution d'un fichier entier contenant de multiples requêtes
+// Pas besoin de parser ou splitter - pg gère automatiquement les fonctions avec DECLARE
+async function executeRawSQLWithPg(
+  projectRef: string | null,
+  connectionString: string | null,
+  templateSQL: string
+) {
+  if (!connectionString) {
+    return { error: "Connection string requise" }
+  }
+
+  const { Client } = await import("pg")
+
+  const client = new Client({
+    connectionString,
+    // Options importantes pour les gros fichiers
+    statement_timeout: 0, // Pas de timeout
+    query_timeout: 0,
+  })
+
+  try {
+    await client.connect()
+    console.log(`[RESTORE] (pg) Connecté à la base de données ${projectRef}`)
+    console.log(`[RESTORE] (pg) Exécution du fichier SQL complet (sans parser, comme psql -f)...`)
+
+    // ✅ Envoie TOUT le contenu d'un coup, sans split(';')
+    // Le driver pg gère automatiquement les multiples requêtes et les fonctions avec DECLARE
+    const result = await client.query(templateSQL)
+    
+    console.log(`[RESTORE] (pg) Restauration terminée avec succès`)
+    console.log(`[RESTORE] (pg) Résultat:`, result.command, result.rowCount !== null ? `${result.rowCount} lignes affectées` : '')
+    
+    return {
+      success: true,
+      message: "Restauration MyFidelity terminée avec succès (via pg, exécution directe)",
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[RESTORE] (pg) Erreur:", errorMessage)
+    
+    return {
+      error: `Erreur lors de la restauration MyFidelity: ${errorMessage}`,
+    }
+  } finally {
+    await client.end()
+  }
+}
+
+// Vérifier si psql est disponible sur le système (pour développement local uniquement)
+// Trouve le chemin de psql.exe dans les emplacements communs de PostgreSQL sur Windows
+async function findPsqlPath(): Promise<string | null> {
+  const fs = await import("fs/promises")
+  const path = await import("path")
+  
+  // Essayer d'abord avec psql dans le PATH
+  try {
+    const { exec } = await import("child_process")
+    const { promisify } = await import("util")
+    const execAsync = promisify(exec)
+    await execAsync("psql --version", { timeout: 2000 })
+    return "psql" // psql est dans le PATH
+  } catch {
+    // psql n'est pas dans le PATH, chercher dans les emplacements communs
+  }
+  
+  // Emplacements communs de PostgreSQL sur Windows
+  const commonPaths = [
+    "C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe",
+    "C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe",
+    "C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe",
+    "C:\\Program Files\\PostgreSQL\\15\\bin\\psql.exe",
+    "C:\\Program Files\\PostgreSQL\\14\\bin\\psql.exe",
+    "C:\\Program Files (x86)\\PostgreSQL\\18\\bin\\psql.exe",
+    "C:\\Program Files (x86)\\PostgreSQL\\17\\bin\\psql.exe",
+    "C:\\Program Files (x86)\\PostgreSQL\\16\\bin\\psql.exe",
+  ]
+  
+  // Chercher dans les dossiers PostgreSQL pour trouver toutes les versions installées
+  const programFilesPaths = [
+    "C:\\Program Files\\PostgreSQL",
+    "C:\\Program Files (x86)\\PostgreSQL",
+  ]
+  
+  for (const basePath of programFilesPaths) {
+    try {
+      const entries = await fs.readdir(basePath, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const psqlPath = path.join(basePath, entry.name, "bin", "psql.exe")
+          try {
+            await fs.access(psqlPath)
+            return psqlPath
+          } catch {
+            // Fichier n'existe pas, continuer
+          }
+        }
+      }
+    } catch {
+      // Dossier n'existe pas, continuer
+    }
+  }
+  
+  // Essayer les chemins communs directement
+  for (const psqlPath of commonPaths) {
+    try {
+      await fs.access(psqlPath)
+      return psqlPath
+    } catch {
+      // Fichier n'existe pas, continuer
+    }
+  }
+  
+  return null
+}
+
+async function checkPsqlAvailable(): Promise<boolean> {
+  const psqlPath = await findPsqlPath()
+  if (!psqlPath) {
+    return false
+  }
+  
+  try {
+    const { exec } = await import("child_process")
+    const { promisify } = await import("util")
+    const execAsync = promisify(exec)
+    
+    // Essayer d'exécuter psql --version
+    await execAsync(`"${psqlPath}" --version`, { timeout: 5000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Exécution raw avec psql (comme le script PowerShell)
+async function executeRawSQLWithPsql(
+  projectRef: string | null,
+  connectionString: string | null,
+  templateSQL: string,
+  dbPassword: string
+) {
+  if (!connectionString) {
+    return { error: "Connection string requise" }
+  }
+
+  const { exec } = await import("child_process")
+  const { promisify } = await import("util")
+  const execAsync = promisify(exec)
+  const fs = await import("fs/promises")
+  const path = await import("path")
+  const os = await import("os")
+
+  // Créer un fichier temporaire avec le SQL
+  const tempDir = os.tmpdir()
+  const tempFile = path.join(tempDir, `restore_${Date.now()}_${Math.random().toString(36).substring(7)}.sql`)
+
+  try {
+    // Écrire le SQL dans le fichier temporaire
+    await fs.writeFile(tempFile, templateSQL, "utf8")
+    console.log(`[RESTORE] (raw) Fichier temporaire créé: ${tempFile}`)
+
+    // Extraire les infos de la connection string pour affichage
+    const url = new URL(connectionString)
+    const host = url.hostname
+    const port = url.port || "5432"
+    const database = url.pathname.slice(1) || "postgres"
+    const user = url.username || "postgres"
+
+    // Trouver le chemin de psql
+    const psqlPath = await findPsqlPath()
+    if (!psqlPath) {
+      return {
+        error: `psql n'est pas installé. Utilisation de pg (fallback)...`,
+        fallback: true,
+      }
+    }
+    
+    // Construire la commande psql avec -d (comme suggéré)
+    // Format: psql -d "postgresql://user:password@host:port/database" -f file.sql
+    // Le -d utilise la connection string directement, psql gère nativement le dollar-quoting
+    const psqlCommand = `"${psqlPath}" -d "${connectionString}" -f "${tempFile}"`
+
+    console.log(`[RESTORE] (psql) Exécution avec psql (outil natif PostgreSQL) pour ${projectRef}...`)
+    console.log(`[RESTORE] (psql) Host: ${host}, Port: ${port}, Database: ${database}, User: ${user}`)
+    console.log(`[RESTORE] (psql) Commande: psql -d "[connection_string]" -f "${tempFile}"`)
+
+    // Définir PGPASSWORD dans l'environnement (comme le script PowerShell)
+    const env = { ...process.env, PGPASSWORD: dbPassword }
+
+    // Exécuter psql - l'outil natif qui gère parfaitement le dollar-quoting et DECLARE
+    const { stdout, stderr } = await execAsync(psqlCommand, {
+      env,
+      maxBuffer: 50 * 1024 * 1024, // 50MB buffer pour les gros fichiers
+    })
+
+    // Logger la sortie pour debug
+    if (stdout) {
+      console.log(`[RESTORE] (psql) stdout:`, stdout.substring(0, 500)) // Premiers 500 caractères
+    }
+
+    // Les NOTICE et WARNING sont normaux avec psql, on les ignore
+    // Mais on log les erreurs réelles
+    if (stderr) {
+      const errorLines = stderr.split('\n').filter(line => 
+        line.trim() && 
+        !line.includes("NOTICE") && 
+        !line.includes("WARNING") &&
+        !line.includes("INFO")
+      )
+      
+      if (errorLines.length > 0) {
+        console.error(`[RESTORE] (psql) Erreurs détectées:`, errorLines.join('\n'))
+        return {
+          error: `Erreurs lors de l'exécution: ${errorLines.join('; ')}`,
+        }
+      } else {
+        console.log(`[RESTORE] (psql) Avertissements (ignorés):`, stderr.substring(0, 200))
+      }
+    }
+
+    console.log(`[RESTORE] (psql) Restauration terminée avec succès (outil natif PostgreSQL)`)
+    return {
+      success: true,
+      message: "Restauration MyFidelity terminée avec succès (via psql - outil natif)",
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[RESTORE] (psql) Erreur:", errorMessage)
+    
+    // Si psql n'est pas trouvé, utiliser le fallback pg
+    if (errorMessage.includes("n'est pas reconnu") || 
+        errorMessage.includes("not recognized") || 
+        errorMessage.includes("command not found")) {
+      console.log(`[RESTORE] (psql) psql non disponible, bascule vers pg...`)
+      return {
+        error: `psql n'est pas installé. Utilisation de pg (fallback)...`,
+        fallback: true, // Indicateur pour utiliser pg
+      }
+    }
+    
+    // Extraire le message d'erreur plus lisible depuis stderr
+    let readableError = errorMessage
+    if (errorMessage.includes("stderr:")) {
+      const stderrMatch = errorMessage.match(/stderr: (.+)/)
+      if (stderrMatch) {
+        readableError = stderrMatch[1]
+      }
+    }
+
+    return {
+      error: `Erreur lors de la restauration avec psql: ${readableError}`,
+    }
+  } finally {
+    // Nettoyer le fichier temporaire
+    try {
+      await fs.unlink(tempFile)
+      console.log(`[RESTORE] (psql) Fichier temporaire supprimé: ${tempFile}`)
+    } catch (cleanupError) {
+      console.warn(`[RESTORE] (psql) Impossible de supprimer le fichier temporaire: ${tempFile}`, cleanupError)
     }
   }
 }
@@ -318,9 +736,9 @@ function parseSQLStatements(sql: string): string[] {
     // Détecter le début d'une fonction PostgreSQL (CREATE FUNCTION ... AS $$ ... $$)
     if (!inString && !inDollarQuote && !inDoBlock && !inFunction) {
       const remaining = sql.substring(i).toLowerCase()
-      if (remaining.match(/^\s*create\s+(or\s+replace\s+)?function\s+/)) {
+      if (remaining.match(/^\s*create\s+(or\s+replace\s+)?function\s+/i)) {
         const fullRemaining = sql.substring(i)
-        const asMatch = fullRemaining.match(/as\s+(\$[^$\s]*\$)/is)
+          const asMatch = fullRemaining.match(/as\s+(\$[^$\s]*\$)/i)
         if (asMatch) {
           inFunction = true
           functionDollarTag = asMatch[1]
@@ -361,7 +779,7 @@ function parseSQLStatements(sql: string): string[] {
           const afterTag = sql.substring(i + 1).trim()
 
           if (afterTag.match(/^\s*language\s+/i)) {
-            const langMatch = afterTag.match(/language\s+\w+\s*;/is)
+            const langMatch = afterTag.match(/language\s+\w+\s*;/i)
             if (langMatch) {
               inFunction = false
               functionDollarTag = ""

@@ -1,5 +1,32 @@
 @import "tailwindcss";
 
+/* Animations pour la progress bar */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes progress {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
+
+.animate-progress {
+  animation: progress 2s ease-out;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

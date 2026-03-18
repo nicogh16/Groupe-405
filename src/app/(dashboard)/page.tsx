@@ -15,6 +15,26 @@ export default async function DashboardPage() {
 
   const clients = (clientsRaw ?? []) as unknown as (Client & { app: App })[]
 
+  // Rafraîchir les métriques de tous les clients au chargement du dashboard
+  // Cela appelle l'Edge Function Supabase qui met à jour les snapshots dans la base
+  if (clients.length > 0) {
+    try {
+      await Promise.allSettled(
+        clients.map((client) =>
+          supabase.functions.invoke("fetch-client-metrics", {
+            body: {
+              client_id: client.id,
+              save_snapshot: true,
+            },
+          })
+        )
+      )
+    } catch (error) {
+      // On log l'erreur côté serveur mais on ne bloque pas le rendu du dashboard
+      console.error("Erreur lors du rafraîchissement des métriques clients:", error)
+    }
+  }
+
   // Charger le dernier snapshot pour chaque client
   const snapshots: Record<string, UsageSnapshot | null> = {}
 
