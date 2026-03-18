@@ -14,12 +14,15 @@ export interface ProspectLead {
   phones: string[]
   address: string | null
   source: string
+  relevanceScore: number
 }
 
 export interface SearchResult {
   leads: ProspectLead[]
   totalScraped: number
+  totalSearchResults: number
   errors: string[]
+  searchQueries: string[]
 }
 
 // =====================================================
@@ -29,28 +32,19 @@ export interface SearchResult {
 const EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g
 const PHONE_REGEX = /(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}/g
 
-// Emails à ignorer (génériques, images, etc.)
 const IGNORED_EMAIL_DOMAINS = [
-  "example.com",
-  "sentry.io",
-  "wixpress.com",
-  "w3.org",
-  "schema.org",
-  "googleapis.com",
-  "googleusercontent.com",
-  "gstatic.com",
+  "example.com", "sentry.io", "wixpress.com", "w3.org", "schema.org",
+  "googleapis.com", "googleusercontent.com", "gstatic.com", "facebook.com",
+  "twitter.com", "instagram.com", "linkedin.com", "youtube.com",
+  "apple.com", "microsoft.com", "google.com", "amazon.com",
+  "cloudflare.com", "wordpress.org", "jquery.com", "bootstrapcdn.com",
 ]
 
 const IGNORED_EMAIL_PATTERNS = [
-  /\.png$/i,
-  /\.jpg$/i,
-  /\.gif$/i,
-  /\.svg$/i,
-  /\.webp$/i,
-  /^noreply@/i,
-  /^no-reply@/i,
-  /^postmaster@/i,
-  /^mailer-daemon@/i,
+  /\.png$/i, /\.jpg$/i, /\.gif$/i, /\.svg$/i, /\.webp$/i, /\.css$/i, /\.js$/i,
+  /^noreply@/i, /^no-reply@/i, /^postmaster@/i, /^mailer-daemon@/i,
+  /^admin@/i, /^webmaster@/i, /^support@wordpress/i, /^changeme@/i,
+  /^email@/i, /^test@/i, /^info@example/i, /^user@/i,
 ]
 
 function cleanEmails(emails: string[]): string[] {
@@ -59,11 +53,8 @@ function cleanEmails(emails: string[]): string[] {
     const lower = email.toLowerCase()
     if (seen.has(lower)) return false
     seen.add(lower)
-    // Filtrer les domaines ignorés
     if (IGNORED_EMAIL_DOMAINS.some((d) => lower.endsWith(`@${d}`) || lower.includes(d))) return false
-    // Filtrer les patterns ignorés
     if (IGNORED_EMAIL_PATTERNS.some((p) => p.test(lower))) return false
-    // Filtrer les emails trop courts ou trop longs
     if (lower.length < 6 || lower.length > 80) return false
     return true
   })
@@ -72,10 +63,10 @@ function cleanEmails(emails: string[]): string[] {
 function cleanPhones(phones: string[]): string[] {
   const seen = new Set<string>()
   return phones.filter((phone) => {
-    // Normaliser le numéro
     const digits = phone.replace(/\D/g, "")
-    // Doit avoir entre 7 et 11 chiffres
     if (digits.length < 7 || digits.length > 11) return false
+    // Ignorer les numéros qui sont clairement des dates ou codes
+    if (/^(19|20)\d{6}$/.test(digits)) return false
     if (seen.has(digits)) return false
     seen.add(digits)
     return true
@@ -84,20 +75,14 @@ function cleanPhones(phones: string[]): string[] {
 
 function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, "")
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  }
-  if (digits.length === 11 && digits.startsWith("1")) {
-    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  if (digits.length === 11 && digits.startsWith("1")) return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
   return phone
 }
 
-// User agent pour les requêtes
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-async function fetchWithTimeout(url: string, timeoutMs: number = 8000): Promise<string | null> {
+async function fetchPage(url: string, timeoutMs = 10000): Promise<string | null> {
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -112,10 +97,8 @@ async function fetchWithTimeout(url: string, timeoutMs: number = 8000): Promise<
     })
     clearTimeout(timeout)
     if (!response.ok) return null
-    const contentType = response.headers.get("content-type") || ""
-    if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/xhtml")) {
-      return null
-    }
+    const ct = response.headers.get("content-type") || ""
+    if (!ct.includes("text/html") && !ct.includes("text/plain") && !ct.includes("xhtml")) return null
     return await response.text()
   } catch {
     return null
@@ -123,229 +106,238 @@ async function fetchWithTimeout(url: string, timeoutMs: number = 8000): Promise<
 }
 
 // =====================================================
-// Recherche via DuckDuckGo HTML
+// Moteurs de recherche
 // =====================================================
 
-async function searchDuckDuckGo(query: string): Promise<Array<{ title: string; url: string; snippet: string }>> {
-  const results: Array<{ title: string; url: string; snippet: string }> = []
-  
-  try {
-    const encodedQuery = encodeURIComponent(query)
-    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodedQuery}`
-    
-    const html = await fetchWithTimeout(searchUrl, 10000)
-    if (!html) return results
+interface RawSearchResult {
+  title: string
+  url: string
+  snippet: string
+}
 
+async function searchDuckDuckGo(query: string): Promise<RawSearchResult[]> {
+  const results: RawSearchResult[] = []
+  try {
+    const html = await fetchPage(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, 12000)
+    if (!html) return results
     const $ = cheerio.load(html)
-    
     $(".result").each((_, el) => {
       const titleEl = $(el).find(".result__title a, .result__a")
       const snippetEl = $(el).find(".result__snippet")
       const title = titleEl.text().trim()
       let url = titleEl.attr("href") || ""
       const snippet = snippetEl.text().trim()
-
-      // DuckDuckGo utilise des URLs de redirection, extraire l'URL réelle
       if (url.includes("uddg=")) {
         try {
-          const urlObj = new URL(url, "https://duckduckgo.com")
-          url = decodeURIComponent(urlObj.searchParams.get("uddg") || url)
-        } catch {
-          // garder l'URL telle quelle
-        }
+          url = decodeURIComponent(new URL(url, "https://duckduckgo.com").searchParams.get("uddg") || url)
+        } catch { /* keep url */ }
       }
-
-      if (title && url && url.startsWith("http")) {
-        results.push({ title, url, snippet })
-      }
+      if (title && url && url.startsWith("http")) results.push({ title, url, snippet })
     })
-  } catch (error) {
-    console.error("Erreur recherche DuckDuckGo:", error)
-  }
-
+  } catch { /* ignore */ }
   return results
 }
 
-// =====================================================
-// Recherche via Bing
-// =====================================================
-
-async function searchBing(query: string): Promise<Array<{ title: string; url: string; snippet: string }>> {
-  const results: Array<{ title: string; url: string; snippet: string }> = []
-
+async function searchBing(query: string, count = 30): Promise<RawSearchResult[]> {
+  const results: RawSearchResult[] = []
   try {
-    const encodedQuery = encodeURIComponent(query)
-    const searchUrl = `https://www.bing.com/search?q=${encodedQuery}&count=20`
-
-    const html = await fetchWithTimeout(searchUrl, 10000)
+    const html = await fetchPage(`https://www.bing.com/search?q=${encodeURIComponent(query)}&count=${count}`, 12000)
     if (!html) return results
-
     const $ = cheerio.load(html)
-
     $(".b_algo").each((_, el) => {
       const titleEl = $(el).find("h2 a")
       const snippetEl = $(el).find(".b_caption p, .b_lineclamp2")
       const title = titleEl.text().trim()
       const url = titleEl.attr("href") || ""
       const snippet = snippetEl.text().trim()
-
-      if (title && url && url.startsWith("http")) {
-        results.push({ title, url, snippet })
-      }
+      if (title && url && url.startsWith("http")) results.push({ title, url, snippet })
     })
-  } catch (error) {
-    console.error("Erreur recherche Bing:", error)
-  }
-
+  } catch { /* ignore */ }
   return results
 }
 
 // =====================================================
-// Extraction de contacts depuis une page
+// Extraction de contacts
 // =====================================================
 
-async function extractContactsFromPage(
-  url: string
-): Promise<{ emails: string[]; phones: string[]; address: string | null }> {
+function extractContactsFromHTML(html: string, url: string): {
+  emails: string[]; phones: string[]; address: string | null
+} {
   const result = { emails: [] as string[], phones: [] as string[], address: null as string | null }
-
   try {
-    const html = await fetchWithTimeout(url)
-    if (!html) return result
-
     const $ = cheerio.load(html)
-
-    // Supprimer les scripts et styles pour éviter les faux positifs
-    $("script, style, noscript").remove()
-
+    $("script, style, noscript, svg, path").remove()
     const bodyText = $("body").text()
 
-    // Extraire les emails
-    const emailMatches = bodyText.match(EMAIL_REGEX) || []
-    result.emails = cleanEmails(emailMatches)
+    // Emails depuis le texte
+    result.emails.push(...(bodyText.match(EMAIL_REGEX) || []))
 
-    // Chercher aussi dans les liens mailto:
+    // Emails depuis les liens mailto
     $('a[href^="mailto:"]').each((_, el) => {
-      const href = $(el).attr("href") || ""
-      const email = href.replace("mailto:", "").split("?")[0].trim()
-      if (email && EMAIL_REGEX.test(email)) {
-        result.emails.push(email)
-      }
+      const email = ($(el).attr("href") || "").replace("mailto:", "").split("?")[0].trim()
+      if (email && EMAIL_REGEX.test(email)) result.emails.push(email)
     })
-    result.emails = cleanEmails(result.emails)
 
-    // Extraire les téléphones
-    const phoneMatches = bodyText.match(PHONE_REGEX) || []
-    result.phones = cleanPhones(phoneMatches).map(formatPhone)
+    // Téléphones depuis le texte
+    result.phones.push(...(bodyText.match(PHONE_REGEX) || []))
 
-    // Chercher aussi dans les liens tel:
+    // Téléphones depuis les liens tel
     $('a[href^="tel:"]').each((_, el) => {
-      const href = $(el).attr("href") || ""
-      const phone = href.replace("tel:", "").trim()
-      if (phone) {
-        const formatted = formatPhone(phone)
-        if (!result.phones.includes(formatted)) {
-          result.phones.push(formatted)
-        }
-      }
+      const phone = ($(el).attr("href") || "").replace("tel:", "").trim()
+      if (phone) result.phones.push(phone)
     })
 
-    // Essayer d'extraire une adresse (balise address ou schéma)
+    // Adresse depuis balise <address>
     const addressEl = $("address").first().text().trim()
-    if (addressEl && addressEl.length > 10 && addressEl.length < 200) {
+    if (addressEl && addressEl.length > 10 && addressEl.length < 300) {
       result.address = addressEl.replace(/\s+/g, " ")
     }
 
-    // Chercher dans les données structurées (JSON-LD)
+    // Données structurées JSON-LD
     $('script[type="application/ld+json"]').each((_, el) => {
       try {
-        const jsonText = $(el).html()
-        if (!jsonText) return
-        const data = JSON.parse(jsonText)
-        
-        const extractFromSchema = (obj: Record<string, unknown>) => {
-          if (obj.email && typeof obj.email === "string") {
-            const email = obj.email.replace("mailto:", "")
-            if (EMAIL_REGEX.test(email)) result.emails.push(email)
+        const data = JSON.parse($(el).html() || "")
+        const items = Array.isArray(data) ? data : [data]
+        for (const obj of items) {
+          if (obj.email) {
+            const e = String(obj.email).replace("mailto:", "")
+            if (EMAIL_REGEX.test(e)) result.emails.push(e)
           }
-          if (obj.telephone && typeof obj.telephone === "string") {
-            result.phones.push(formatPhone(obj.telephone))
-          }
+          if (obj.telephone) result.phones.push(String(obj.telephone))
           if (obj.address && typeof obj.address === "object") {
-            const addr = obj.address as Record<string, string>
-            const parts = [addr.streetAddress, addr.addressLocality, addr.addressRegion, addr.postalCode].filter(Boolean)
-            if (parts.length > 1) {
-              result.address = parts.join(", ")
+            const a = obj.address
+            const parts = [a.streetAddress, a.addressLocality, a.addressRegion, a.postalCode].filter(Boolean)
+            if (parts.length > 1) result.address = parts.join(", ")
+          }
+          // Chercher aussi dans contactPoint
+          if (obj.contactPoint) {
+            const contacts = Array.isArray(obj.contactPoint) ? obj.contactPoint : [obj.contactPoint]
+            for (const cp of contacts) {
+              if (cp.email) result.emails.push(String(cp.email).replace("mailto:", ""))
+              if (cp.telephone) result.phones.push(String(cp.telephone))
             }
           }
         }
-
-        if (Array.isArray(data)) {
-          data.forEach((item: Record<string, unknown>) => extractFromSchema(item))
-        } else {
-          extractFromSchema(data)
-        }
-      } catch {
-        // JSON invalide, ignorer
-      }
+      } catch { /* bad json */ }
     })
 
-    // Dédupliquer après toutes les extractions
-    result.emails = cleanEmails(result.emails)
-    result.phones = [...new Set(result.phones)]
-  } catch {
-    // Erreur de fetch, retourner résultat vide
-  }
+    // Chercher aussi dans les meta tags
+    const ogEmail = $('meta[property="og:email"]').attr("content")
+    if (ogEmail) result.emails.push(ogEmail)
 
+    // Nettoyer
+    result.emails = cleanEmails(result.emails)
+    result.phones = [...new Set(cleanPhones(result.phones).map(formatPhone))]
+  } catch { /* ignore */ }
   return result
 }
 
-// =====================================================
-// Chercher les pages contact/about d'un site
-// =====================================================
-
-async function findContactPages(baseUrl: string, html: string): Promise<string[]> {
-  const contactPages: string[] = []
-  
+function findContactPageUrls(baseUrl: string, html: string): string[] {
+  const urls: string[] = []
   try {
     const $ = cheerio.load(html)
-    const baseUrlObj = new URL(baseUrl)
-    
-    const contactKeywords = [
+    const baseHost = new URL(baseUrl).hostname
+    const keywords = [
       "contact", "nous-joindre", "nous-contacter", "about", "a-propos",
-      "coordonnees", "coordonnées", "join", "reach", "info"
+      "coordonnees", "coordonnées", "join", "reach", "info",
+      "about-us", "qui-sommes-nous", "equipe", "team",
     ]
-
     $("a[href]").each((_, el) => {
       const href = $(el).attr("href") || ""
       const text = $(el).text().toLowerCase().trim()
-      
       const hrefLower = href.toLowerCase()
-      const isContactLink = contactKeywords.some(
-        (kw) => hrefLower.includes(kw) || text.includes(kw)
-      )
-
-      if (isContactLink) {
+      if (keywords.some((kw) => hrefLower.includes(kw) || text.includes(kw))) {
         try {
-          const fullUrl = new URL(href, baseUrl)
-          // Ne suivre que les liens du même domaine
-          if (fullUrl.hostname === baseUrlObj.hostname) {
-            contactPages.push(fullUrl.toString())
-          }
-        } catch {
-          // URL invalide
-        }
+          const full = new URL(href, baseUrl)
+          if (full.hostname === baseHost) urls.push(full.toString())
+        } catch { /* bad url */ }
       }
     })
-  } catch {
-    // Erreur, retourner vide
-  }
-
-  return [...new Set(contactPages)].slice(0, 3) // Max 3 pages de contact
+  } catch { /* ignore */ }
+  return [...new Set(urls)].slice(0, 3)
 }
 
 // =====================================================
-// Action principale de recherche
+// Score de pertinence
+// =====================================================
+
+function computeRelevance(
+  lead: { name: string; description: string; emails: string[]; phones: string[]; address: string | null },
+  keywords: string[]
+): number {
+  let score = 0
+  const text = `${lead.name} ${lead.description}`.toLowerCase()
+
+  // Points pour contacts trouvés
+  score += Math.min(lead.emails.length, 3) * 20
+  score += Math.min(lead.phones.length, 3) * 15
+  if (lead.address) score += 10
+
+  // Points pour mots-clés trouvés dans le texte
+  for (const kw of keywords) {
+    if (kw.length < 2) continue
+    if (text.includes(kw.toLowerCase())) score += 15
+  }
+
+  return Math.min(score, 100)
+}
+
+// =====================================================
+// Générateur de requêtes de recherche variées
+// =====================================================
+
+function buildSearchQueries(params: {
+  location: string; sector: string; keywords: string; specificTarget: string
+}): string[] {
+  const { location, sector, keywords, specificTarget } = params
+  const queries: string[] = []
+
+  // Requête principale ciblée
+  const mainParts = [specificTarget, sector, location].filter(Boolean)
+  if (mainParts.length > 0) {
+    queries.push(`${mainParts.join(" ")} contact email téléphone`)
+  }
+
+  // Requête avec "annuaire" / "répertoire"
+  if (location && (sector || specificTarget)) {
+    queries.push(`${specificTarget || sector} ${location} annuaire répertoire`)
+  }
+
+  // Requête ciblée sur les coordonnées
+  if (specificTarget && location) {
+    queries.push(`"${specificTarget}" "${location}" coordonnées`)
+  }
+
+  // Requête avec mots-clés supplémentaires
+  if (keywords && location) {
+    queries.push(`${keywords} ${specificTarget || sector} ${location}`)
+  }
+
+  // Requête pages jaunes / annuaire
+  if (specificTarget || sector) {
+    queries.push(`${specificTarget || sector} ${location} site:pagesjaunes.ca OR site:yellowpages.ca OR site:canada411.ca`)
+  }
+
+  // Requête Google Maps style
+  if (specificTarget && location) {
+    queries.push(`${specificTarget} near ${location} phone email`)
+  }
+
+  // Requête francophone ciblée
+  if (location && (specificTarget || sector)) {
+    queries.push(`liste ${specificTarget || sector} ${location} courriel téléphone`)
+  }
+
+  // Requête en anglais aussi
+  if (specificTarget && location) {
+    queries.push(`${specificTarget} ${location} contact information email phone`)
+  }
+
+  return [...new Set(queries)].slice(0, 8) // Max 8 requêtes variées
+}
+
+// =====================================================
+// Action principale
 // =====================================================
 
 export async function searchProspects(formData: {
@@ -353,118 +345,114 @@ export async function searchProspects(formData: {
   sector: string
   keywords: string
   specificTarget: string
+  maxResults: number
 }): Promise<SearchResult> {
-  const { location, sector, keywords, specificTarget } = formData
+  const { location, sector, keywords, specificTarget, maxResults } = formData
   const errors: string[] = []
+  const targetCount = Math.min(Math.max(maxResults || 10, 5), 50)
 
-  // Construire la requête de recherche
-  const queryParts = []
-  if (specificTarget) queryParts.push(specificTarget)
-  if (sector) queryParts.push(sector)
-  if (location) queryParts.push(location)
-  if (keywords) queryParts.push(keywords)
-  queryParts.push("contact email téléphone")
+  // Générer plusieurs requêtes de recherche variées
+  const searchQueries = buildSearchQueries({ location, sector, keywords, specificTarget })
 
-  const searchQuery = queryParts.join(" ")
+  if (searchQueries.length === 0) {
+    return { leads: [], totalScraped: 0, totalSearchResults: 0, errors: ["Veuillez entrer au moins un critère de recherche."], searchQueries: [] }
+  }
 
-  // Aussi faire une recherche plus ciblée
-  const directoryQuery = `${specificTarget || sector} ${location} annuaire coordonnées`
+  // Exécuter toutes les recherches en parallèle (DDG + Bing pour chaque requête)
+  const searchPromises: Promise<RawSearchResult[]>[] = []
+  for (const q of searchQueries) {
+    searchPromises.push(searchDuckDuckGo(q))
+    searchPromises.push(searchBing(q, 30))
+  }
+  const allRawResults = await Promise.all(searchPromises)
 
-  // Rechercher via plusieurs moteurs en parallèle
-  const [duckResults, bingResults, duckDirectoryResults] = await Promise.all([
-    searchDuckDuckGo(searchQuery),
-    searchBing(searchQuery),
-    searchDuckDuckGo(directoryQuery),
-  ])
-
-  // Combiner et dédupliquer les résultats de recherche
-  const allSearchResults = new Map<string, { title: string; url: string; snippet: string }>()
-  
-  for (const result of [...duckResults, ...bingResults, ...duckDirectoryResults]) {
-    try {
-      const urlObj = new URL(result.url)
-      const key = urlObj.hostname + urlObj.pathname
-      if (!allSearchResults.has(key)) {
-        allSearchResults.set(key, result)
-      }
-    } catch {
-      // URL invalide, ignorer
+  // Combiner et dédupliquer
+  const uniqueMap = new Map<string, RawSearchResult>()
+  for (const batch of allRawResults) {
+    for (const r of batch) {
+      try {
+        const u = new URL(r.url)
+        // Ignorer les moteurs de recherche, réseaux sociaux, etc.
+        const skipDomains = ["google.", "bing.", "duckduckgo.", "yahoo.", "facebook.com", "twitter.com", "instagram.com", "linkedin.com", "youtube.com", "wikipedia.org", "reddit.com", "tiktok.com"]
+        if (skipDomains.some(d => u.hostname.includes(d))) continue
+        const key = u.hostname + u.pathname.replace(/\/+$/, "")
+        if (!uniqueMap.has(key)) uniqueMap.set(key, r)
+      } catch { /* bad url */ }
     }
   }
 
-  const uniqueResults = Array.from(allSearchResults.values()).slice(0, 15) // Max 15 résultats
+  const totalSearchResults = uniqueMap.size
+  // Prendre plus de résultats que nécessaire pour compenser ceux sans contacts
+  const candidates = Array.from(uniqueMap.values()).slice(0, Math.min(targetCount * 4, 80))
 
-  if (uniqueResults.length === 0) {
-    errors.push("Aucun résultat trouvé. Essayez d'autres mots-clés.")
-    return { leads: [], totalScraped: 0, errors }
+  if (candidates.length === 0) {
+    return { leads: [], totalScraped: 0, totalSearchResults: 0, errors: ["Aucun résultat trouvé. Essayez d'autres mots-clés."], searchQueries }
   }
 
-  // Scraper chaque résultat pour extraire les contacts
+  // Scraper par lots de 6 en parallèle pour ne pas surcharger
   const leads: ProspectLead[] = []
+  const allKeywords = [specificTarget, sector, ...keywords.split(/\s+/), location].filter(Boolean)
+  const batchSize = 6
 
-  const scrapePromises = uniqueResults.map(async (searchResult) => {
-    try {
-      // Récupérer la page principale
-      const html = await fetchWithTimeout(searchResult.url)
-      if (!html) return null
+  for (let i = 0; i < candidates.length && leads.length < targetCount; i += batchSize) {
+    const batch = candidates.slice(i, i + batchSize)
 
-      // Extraire les contacts de la page principale
-      const mainContacts = await extractContactsFromPage(searchResult.url)
+    const batchResults = await Promise.all(batch.map(async (sr) => {
+      try {
+        const html = await fetchPage(sr.url)
+        if (!html) return null
 
-      // Si pas assez de contacts, chercher les pages contact/à propos
-      if (mainContacts.emails.length === 0 && mainContacts.phones.length === 0) {
-        const contactPages = await findContactPages(searchResult.url, html)
-        
-        for (const pageUrl of contactPages) {
-          const pageContacts = await extractContactsFromPage(pageUrl)
-          mainContacts.emails.push(...pageContacts.emails)
-          mainContacts.phones.push(...pageContacts.phones)
-          if (!mainContacts.address && pageContacts.address) {
-            mainContacts.address = pageContacts.address
+        let contacts = extractContactsFromHTML(html, sr.url)
+
+        // Si pas de contacts, chercher les pages contact/à propos
+        if (contacts.emails.length === 0 && contacts.phones.length === 0) {
+          const contactPages = findContactPageUrls(sr.url, html)
+          for (const pageUrl of contactPages) {
+            const pageHtml = await fetchPage(pageUrl)
+            if (!pageHtml) continue
+            const pageContacts = extractContactsFromHTML(pageHtml, pageUrl)
+            contacts.emails.push(...pageContacts.emails)
+            contacts.phones.push(...pageContacts.phones)
+            if (!contacts.address && pageContacts.address) contacts.address = pageContacts.address
           }
+          contacts.emails = cleanEmails(contacts.emails)
+          contacts.phones = [...new Set(contacts.phones)]
         }
 
-        // Dédupliquer
-        mainContacts.emails = cleanEmails(mainContacts.emails)
-        mainContacts.phones = [...new Set(mainContacts.phones)]
-      }
+        if (contacts.emails.length === 0 && contacts.phones.length === 0) return null
 
-      // Ne retourner que les résultats avec au moins un contact
-      if (mainContacts.emails.length > 0 || mainContacts.phones.length > 0) {
-        return {
-          name: searchResult.title,
-          url: searchResult.url,
-          description: searchResult.snippet,
-          emails: mainContacts.emails.slice(0, 5), // Max 5 emails par lead
-          phones: mainContacts.phones.slice(0, 5), // Max 5 phones par lead
-          address: mainContacts.address,
-          source: new URL(searchResult.url).hostname,
-        } satisfies ProspectLead
-      }
+        const lead: ProspectLead = {
+          name: sr.title,
+          url: sr.url,
+          description: sr.snippet,
+          emails: contacts.emails.slice(0, 8),
+          phones: contacts.phones.slice(0, 8),
+          address: contacts.address,
+          source: new URL(sr.url).hostname,
+          relevanceScore: 0,
+        }
+        lead.relevanceScore = computeRelevance(lead, allKeywords)
+        return lead
+      } catch { return null }
+    }))
 
-      return null
-    } catch {
-      return null
-    }
-  })
-
-  const results = await Promise.all(scrapePromises)
-  
-  for (const lead of results) {
-    if (lead) {
-      leads.push(lead)
+    for (const lead of batchResults) {
+      if (lead && leads.length < targetCount) leads.push(lead)
     }
   }
 
-  if (leads.length === 0 && uniqueResults.length > 0) {
-    errors.push(
-      "Des résultats de recherche ont été trouvés, mais aucun contact n'a pu être extrait. Essayez des termes plus spécifiques."
-    )
+  // Trier par score de pertinence
+  leads.sort((a, b) => b.relevanceScore - a.relevanceScore)
+
+  if (leads.length === 0 && candidates.length > 0) {
+    errors.push("Des résultats de recherche ont été trouvés, mais aucun contact n'a pu être extrait. Essayez des termes plus spécifiques ou un secteur différent.")
   }
 
   return {
     leads,
-    totalScraped: uniqueResults.length,
+    totalScraped: Math.min(candidates.length, leads.length > 0 ? candidates.length : candidates.length),
+    totalSearchResults,
     errors,
+    searchQueries,
   }
 }
