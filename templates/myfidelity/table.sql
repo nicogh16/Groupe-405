@@ -382,3 +382,94 @@ CREATE TABLE audit.user_points_anomalies (
 
 COMMENT ON COLUMN audit.user_points_anomalies.status IS 'Statut de l''anomalie : a_verifier (à vérifier manuellement), corrige_auto (corrigée automatiquement), corrige_manuel (corrigée manuellement), ignore (ignorée)';
 
+
+
+-- ============================================================
+-- PRIMARY KEY constraints (required for FOREIGN KEY references)
+-- ============================================================
+
+ALTER TABLE ONLY private.articles
+    ADD CONSTRAINT articles_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.offers
+    ADD CONSTRAINT offers_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.restaurants
+    ADD CONSTRAINT restaurants_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.app_access_stats
+    ADD CONSTRAINT app_access_stats_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.transactions
+    ADD CONSTRAINT transactions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.poll_options
+    ADD CONSTRAINT poll_options_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.poll_votes
+    ADD CONSTRAINT poll_votes_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.polls
+    ADD CONSTRAINT polls_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.promotions
+    ADD CONSTRAINT promotions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.articles_categories
+    ADD CONSTRAINT articles_categories_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.disposable_emails
+    ADD CONSTRAINT disposable_emails_pkey PRIMARY KEY (domain);
+
+ALTER TABLE ONLY private.errors
+    ADD CONSTRAINT errors_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.faq
+    ADD CONSTRAINT faq_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.feedback
+    ADD CONSTRAINT feedback_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY private.notification_tokens
+    ADD CONSTRAINT notification_tokens_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.activation_notification_config
+    ADD CONSTRAINT activation_notification_config_pkey PRIMARY KEY (entity_type, entity_id);
+
+ALTER TABLE ONLY public.entity_activation_notifications
+    ADD CONSTRAINT entity_activation_notifications_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.notification_action_settings
+    ADD CONSTRAINT notification_action_settings_pkey PRIMARY KEY (action_id);
+
+ALTER TABLE ONLY public.section_visibility
+    ADD CONSTRAINT section_visibility_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY audit.security_anomalies
+    ADD CONSTRAINT security_anomalies_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY audit.transaction_points_anomalies
+    ADD CONSTRAINT transaction_points_anomalies_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY audit.user_points_anomalies
+    ADD CONSTRAINT user_points_anomalies_pkey PRIMARY KEY (id);
+
+
+-- ============================================================
+-- UNIQUE constraints (required for ON CONFLICT clauses)
+-- ============================================================
+
+ALTER TABLE ONLY audit.transaction_points_anomalies
+    ADD CONSTRAINT transaction_points_anomalies_transaction_id_key UNIQUE (transaction_id);
+
+ALTER TABLE ONLY audit.user_points_anomalies
+    ADD CONSTRAINT user_points_anomalies_user_id_key UNIQUE (user_id);
+
+ALTER TABLE ONLY public.entity_activation_notifications
+    ADD CONSTRAINT entity_activation_notifications_entity_type_entity_id_key UNIQUE (entity_type, entity_id);
+
+ALTER TABLE ONLY private.notification_tokens
+    ADD CONSTRAINT notification_tokens_notification_token_key UNIQUE (notification_token);

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { provisionClientSchema } from "@/lib/validations/provisioning"
 import { PROVISIONING_STEPS } from "@/lib/validations/provisioning"
+import { deployEdgeFunctionsForJob } from "@/lib/deploy-edge-functions"
 import type { Profile } from "@/types"
 
 // ─── Helper : vérifier admin ────────────────────────────────────────────────
@@ -216,6 +217,13 @@ export async function startProvisioning(formData: FormData) {
         console.error("Erreur lors de la mise à jour du job:", updateErr)
       }
     })
+
+  // ── Lancer le déploiement des Edge Functions EN PARALLÈLE ────────────────
+  // Appel direct (pas HTTP) — la fonction tourne en background dans le même process.
+  // Elle attend le project_ref + la fin des migrations, puis déploie via CLI.
+  deployEdgeFunctionsForJob(job.id).catch((err) => {
+    console.error("[EDGE-DEPLOY] Erreur non gérée:", err?.message || err)
+  })
 
   // Audit log
   await supabase.from("audit_log").insert({

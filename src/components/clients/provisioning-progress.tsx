@@ -184,8 +184,18 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
     logs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
     setConsoleLogs(logs)
 
-    // Si terminé ou en erreur, arrêter le polling
+    // Vérifier si le step deploy_edge_functions est encore en cours
+    // (il tourne en parallèle côté Next.js, indépendamment de l'Edge Function)
+    const edgeStep = newSteps.find((s: ProvisioningStep) => s.id === "deploy_edge_functions")
+    const edgeStillRunning = edgeStep && (edgeStep.status === "in_progress" || edgeStep.status === "pending")
+
+    // Si terminé ou en erreur, arrêter le polling (sauf si edge functions encore en cours)
     if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+      if (edgeStillRunning) {
+        // Le job principal est terminé mais les Edge Functions sont encore en cours
+        // On continue le polling pour suivre la progression
+        return true
+      }
       if (job.status === "completed" && onComplete) {
         onComplete()
       }
@@ -383,6 +393,12 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
                     ) : null}
                     {"buckets" in step.result && step.result.buckets !== undefined ? (
                       <span>{String(step.result.buckets)} bucket(s) créé(s)</span>
+                    ) : null}
+                    {"deployed" in step.result && step.result.deployed !== undefined ? (
+                      <span>
+                        {String(step.result.deployed)} Edge Function(s) déployée(s)
+                        {step.result.failed ? ` (${String(step.result.failed)} échec(s))` : ""}
+                      </span>
                     ) : null}
                     {"clientId" in step.result && step.result.clientId ? (
                       <span className="font-mono text-[11px]">
