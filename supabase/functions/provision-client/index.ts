@@ -540,11 +540,10 @@
     // Les étapes suivantes (Edge Functions, GitHub, Vercel, env vars, register)
     // seront réactivées une par une plus tard.
     // ═════════════════════════════════════════════════════════════════════════════
-    console.log("[DONE] Provisionnement arrêté après apply_migrations (mode simplifié)")
-    await updateJobStatus(supabaseAdmin, job_id, "completed")
+    console.log("[DONE] Migrations SQL terminées — attente du déploiement Edge + création client")
     return createResponse({
       success: true,
-      message: "Migrations SQL appliquées. Étapes suivantes à faire manuellement.",
+      message: "Migrations SQL appliquées. Finalisation en cours (Edge Functions + création client).",
       project_ref: projectRef,
       project_url: projectUrl,
     }, 200)

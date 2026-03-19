@@ -1073,7 +1073,7 @@ export async function cancelProvisioningJob(jobId: string) {
     // Supprimer le projet Supabase s'il existe
     if (job.supabase_project_ref) {
       try {
-        const accessToken = process.env.ACCESS_TOKEN
+        const accessToken = process.env.SUPABASE_ACCESS_TOKEN || process.env.ACCESS_TOKEN
         
         if (accessToken) {
           const deleteProjectRes = await fetch(
@@ -1094,7 +1094,7 @@ export async function cancelProvisioningJob(jobId: string) {
             console.warn(`⚠️ Échec suppression projet Supabase ${job.supabase_project_ref}: ${deleteProjectRes.status} - ${errorText}`)
           }
         } else {
-          console.warn(`⚠️ Token Supabase (ACCESS_TOKEN) non configuré, impossible de supprimer le projet Supabase ${job.supabase_project_ref}`)
+          console.warn(`⚠️ Token Supabase non configuré (SUPABASE_ACCESS_TOKEN ou ACCESS_TOKEN), impossible de supprimer le projet Supabase ${job.supabase_project_ref}`)
         }
       } catch (error) {
         console.error(`❌ Erreur lors de la suppression du projet Supabase ${job.supabase_project_ref}:`, error)
@@ -1132,12 +1132,12 @@ export async function cancelProvisioningJob(jobId: string) {
   if (job.supabase_project_ref) {
     try {
       // Récupérer le token d'accès Supabase depuis les variables d'environnement
-      // Note: On utilise le même token que celui utilisé par l'Edge Function (ACCESS_TOKEN)
+      // Note: On accepte SUPABASE_ACCESS_TOKEN (prioritaire) ou ACCESS_TOKEN
       // Cette variable doit être dans .env.local côté serveur Next.js
-      const accessToken = process.env.ACCESS_TOKEN
+      const accessToken = process.env.SUPABASE_ACCESS_TOKEN || process.env.ACCESS_TOKEN
       
       if (!accessToken) {
-        console.warn(`⚠️ Token Supabase (ACCESS_TOKEN) non configuré dans .env.local, impossible de supprimer le projet Supabase ${job.supabase_project_ref}`)
+        console.warn(`⚠️ Token Supabase non configuré dans .env.local (SUPABASE_ACCESS_TOKEN ou ACCESS_TOKEN), impossible de supprimer le projet Supabase ${job.supabase_project_ref}`)
         // On continue quand même la suppression du job
       } else {
         // Supprimer le projet Supabase via l'API Management
@@ -1211,7 +1211,7 @@ export async function retryProvisioningJob(jobId: string) {
     return { error: "Le job est déjà terminé avec succès" }
   }
 
-  // Relancer l'Edge Function
+  // Relancer l'Edge Function provision-client
   supabase.functions
     .invoke("provision-client", {
       body: { job_id: jobId },
@@ -1242,6 +1242,11 @@ export async function retryProvisioningJob(jobId: string) {
         })
         .eq("id", jobId)
     })
+
+  // Relancer aussi le déploiement des Edge Functions en parallèle
+  deployEdgeFunctionsForJob(jobId).catch((err) => {
+    console.error("[EDGE-DEPLOY] Erreur non gérée (retry):", err?.message || err)
+  })
 
   // Audit log
   await supabase.from("audit_log").insert({

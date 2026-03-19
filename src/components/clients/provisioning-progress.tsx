@@ -1,22 +1,21 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   CheckCircle2,
-  Circle,
   Loader2,
   XCircle,
-  SkipForward,
   ExternalLink,
-  PartyPopper,
   Trash2,
   RefreshCw,
   Terminal,
-  ChevronDown,
-  ChevronUp,
+  Database,
+  Key,
+  FileDown,
+  FileCode2,
+  Rocket,
+  Sparkles,
 } from "lucide-react"
 import { getProvisioningJobStatus, cancelProvisioningJob, retryProvisioningJob } from "@/app/(dashboard)/clients/actions"
 import type { ProvisioningStep, ProvisioningJobStatus } from "@/types"
@@ -32,40 +31,181 @@ import {
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 
+// ─── Types ──────────────────────────────────────────────────────────────────────
+
 interface ProvisioningProgressProps {
   jobId: string
   onComplete?: () => void
 }
 
-function StepIcon({ status }: { status: ProvisioningStep["status"] }) {
-  switch (status) {
-    case "completed":
-      return <CheckCircle2 className="h-5 w-5 text-success" />
-    case "in_progress":
-      return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
-    case "failed":
-      return <XCircle className="h-5 w-5 text-red-500" />
-    case "skipped":
-      return <SkipForward className="h-5 w-5 text-muted-foreground" />
-    default:
-      return <Circle className="h-5 w-5 text-muted-foreground/40" />
-  }
+type LogEntry = {
+  timestamp: string
+  level: "info" | "error" | "success" | "warn"
+  message: string
+  step?: string
 }
 
-function statusLabel(status: ProvisioningJobStatus) {
-  switch (status) {
-    case "pending":
-      return { text: "En attente", variant: "secondary" as const }
-    case "running":
-      return { text: "En cours", variant: "default" as const }
-    case "completed":
-      return { text: "Terminé", variant: "default" as const }
-    case "failed":
-      return { text: "Échec", variant: "destructive" as const }
-    case "cancelled":
-      return { text: "Annulé", variant: "secondary" as const }
-  }
+// ─── Icon mapping ───────────────────────────────────────────────────────────────
+
+const STEP_ICONS: Record<string, React.ReactNode> = {
+  create_supabase: <Database className="h-4 w-4" />,
+  wait_supabase: <Key className="h-4 w-4" />,
+  fetch_migrations: <FileDown className="h-4 w-4" />,
+  apply_migrations: <FileCode2 className="h-4 w-4" />,
+  deploy_edge_functions: <Rocket className="h-4 w-4" />,
+  create_github: <FileCode2 className="h-4 w-4" />,
+  create_vercel: <Rocket className="h-4 w-4" />,
+  configure_env: <Key className="h-4 w-4" />,
+  register_client: <Database className="h-4 w-4" />,
 }
+
+// ─── Helper: résultat lisible ───────────────────────────────────────────────────
+
+function getStepResultText(step: ProvisioningStep): string | null {
+  if (!step.result || step.status !== "completed") return null
+  const r = step.result as Record<string, unknown>
+  if ("ref" in r && r.ref) return `Ref: ${String(r.ref)}`
+  if ("url" in r && r.url) return String(r.url)
+  if ("files_applied" in r) return `${r.files_applied} fichier(s) · ${r.total_batches} batch(es)`
+  if ("count" in r && r.count !== undefined) return `${r.count} fichier(s)`
+  if ("deployed" in r && r.deployed !== undefined) {
+    const base = `${r.deployed} fonction(s)`
+    return r.failed ? `${base} · ${r.failed} échec(s)` : base
+  }
+  if ("clientId" in r && r.clientId) return `ID: ${String(r.clientId)}`
+  return null
+}
+
+// ─── Connector ──────────────────────────────────────────────────────────────────
+
+function Connector({ active, completed }: { active: boolean; completed: boolean }) {
+  return (
+    <div className="flex justify-center h-5">
+      <div className="w-px h-full relative overflow-hidden">
+        <div
+          className={`absolute inset-0 transition-colors duration-500 ${
+            completed ? "bg-success/60" : active ? "bg-primary/40" : "bg-border"
+          }`}
+        />
+        {active && (
+          <div className="absolute inset-0 overflow-hidden">
+            <div
+              className="absolute w-full animate-blueprint-flow"
+              style={{
+                height: "200%",
+                background: "linear-gradient(180deg, transparent 0%, var(--primary) 45%, var(--primary) 55%, transparent 100%)",
+                opacity: 0.5,
+              }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Node ───────────────────────────────────────────────────────────────────────
+
+function StepNode({ step, index }: { step: ProvisioningStep; index: number }) {
+  const isActive = step.status === "in_progress"
+  const isCompleted = step.status === "completed"
+  const isFailed = step.status === "failed"
+  const isPending = step.status === "pending" || step.status === "skipped"
+
+  const icon = STEP_ICONS[step.id] || <Database className="h-4 w-4" />
+  const resultText = getStepResultText(step)
+
+  return (
+    <div
+      className="animate-blueprint-node-in opacity-0"
+      style={{ animationDelay: `${index * 60}ms` }}
+    >
+      <div
+        className={`
+          relative flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-all duration-400
+          ${isActive
+            ? "border-primary/40 bg-primary/5 shadow-[0_0_12px_rgba(255,107,53,0.08)]"
+            : isCompleted
+              ? "border-success/30 bg-success/5"
+              : isFailed
+                ? "border-destructive/30 bg-destructive/5"
+                : "border-border bg-card"
+          }
+        `}
+      >
+        {/* Pulse ring */}
+        {isActive && (
+          <div className="absolute -inset-px rounded-lg border border-primary/20 animate-blueprint-pulse-ring pointer-events-none" />
+        )}
+
+        {/* Icon */}
+        <div className="relative shrink-0">
+          <div
+            className={`
+              flex items-center justify-center h-8 w-8 rounded-md transition-all duration-400
+              ${isActive
+                ? "bg-primary/10 text-primary"
+                : isCompleted
+                  ? "bg-success/10 text-success"
+                  : isFailed
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-muted text-muted-foreground"
+              }
+            `}
+          >
+            {isActive ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isCompleted ? (
+              <CheckCircle2 className="h-4 w-4" />
+            ) : isFailed ? (
+              <XCircle className="h-4 w-4" />
+            ) : (
+              icon
+            )}
+          </div>
+          <span
+            className={`
+              absolute -top-1 -left-1 flex items-center justify-center h-3.5 w-3.5 rounded-full text-[8px] font-bold leading-none text-white
+              ${isActive ? "bg-primary" : isCompleted ? "bg-success" : isFailed ? "bg-destructive" : "bg-muted-foreground/40"}
+            `}
+          >
+            {index + 1}
+          </span>
+        </div>
+
+        {/* Label */}
+        <div className="flex-1 min-w-0">
+          <p className={`text-[13px] font-medium leading-tight ${
+            isActive ? "text-foreground" : isCompleted ? "text-foreground" : isFailed ? "text-destructive" : "text-muted-foreground"
+          }`}>
+            {step.label}
+          </p>
+          {resultText && isCompleted && (
+            <p className="text-[10px] text-success/80 font-mono mt-0.5 truncate">{resultText}</p>
+          )}
+          {step.error && isFailed && (
+            <p className="text-[10px] text-destructive/80 mt-0.5 line-clamp-1">{step.error}</p>
+          )}
+        </div>
+
+        {/* Dot */}
+        <div className="shrink-0">
+          {isActive && (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-50" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+            </span>
+          )}
+          {isCompleted && <span className="block h-2 w-2 rounded-full bg-success" />}
+          {isFailed && <span className="block h-2 w-2 rounded-full bg-destructive" />}
+          {isPending && <span className="block h-1.5 w-1.5 rounded-full bg-border" />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Component ─────────────────────────────────────────────────────────────
 
 export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgressProps) {
   const [steps, setSteps] = useState<ProvisioningStep[]>([])
@@ -81,10 +221,12 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isRetrying, setIsRetrying] = useState(false)
-  const [showConsole, setShowConsole] = useState(true)
-  const [consoleLogs, setConsoleLogs] = useState<Array<{ timestamp: string; level: "info" | "error" | "success" | "warn"; message: string; step?: string }>>([])
+  const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([])
   const consoleRef = useRef<HTMLDivElement>(null)
+  const hasCalledOnComplete = useRef(false)
   const router = useRouter()
+
+  // ─── Polling ──────────────────────────────────────────────────────────────
 
   const pollJob = useCallback(async () => {
     const result = await getProvisioningJobStatus(jobId)
@@ -103,247 +245,157 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
       vercelProjectUrl: job.vercel_project_url || undefined,
     })
 
-    // Générer les logs de la console à partir des steps
-    const logs: Array<{ timestamp: string; level: "info" | "error" | "success" | "warn"; message: string; step?: string }> = []
-    
+    // Logs
+    const logs: LogEntry[] = []
     newSteps.forEach((step: ProvisioningStep) => {
-      // Utiliser les logs stockés dans le step si disponibles
       if (step.logs && step.logs.length > 0) {
         step.logs.forEach((log) => {
-          logs.push({
-            timestamp: log.timestamp,
-            level: log.level,
-            message: log.message,
-            step: step.id,
-          })
+          logs.push({ timestamp: log.timestamp, level: log.level, message: log.message, step: step.id })
         })
       } else {
-        // Fallback: générer des logs basiques si pas de logs stockés
-        if (step.started_at) {
-          logs.push({
-            timestamp: step.started_at,
-            level: "info",
-            message: `[${step.label}] Démarrage...`,
-            step: step.id,
-          })
-        }
-
+        if (step.started_at) logs.push({ timestamp: step.started_at, level: "info", message: `[${step.label}] Démarrage...`, step: step.id })
         if (step.status === "completed" && step.completed_at) {
-          const resultMsg = step.result
-            ? ` - ${Object.entries(step.result)
-                .map(([k, v]) => `${k}: ${v}`)
-                .join(", ")}`
-            : ""
-          logs.push({
-            timestamp: step.completed_at,
-            level: "success",
-            message: `[${step.label}] ✅ Terminé${resultMsg}`,
-            step: step.id,
-          })
+          const rm = step.result ? ` — ${Object.entries(step.result).map(([k, v]) => `${k}: ${v}`).join(", ")}` : ""
+          logs.push({ timestamp: step.completed_at, level: "success", message: `[${step.label}] ✅ Terminé${rm}`, step: step.id })
         }
-
-        if (step.status === "failed" && step.error) {
-          logs.push({
-            timestamp: step.completed_at || new Date().toISOString(),
-            level: "error",
-            message: `[${step.label}] ❌ ERREUR: ${step.error}`,
-            step: step.id,
-          })
-        }
-
-        if (step.status === "in_progress") {
-          logs.push({
-            timestamp: new Date().toISOString(),
-            level: "info",
-            message: `[${step.label}] ⏳ En cours...`,
-            step: step.id,
-          })
-        }
+        if (step.status === "failed" && step.error) logs.push({ timestamp: step.completed_at || new Date().toISOString(), level: "error", message: `[${step.label}] ❌ ${step.error}`, step: step.id })
+        if (step.status === "in_progress") logs.push({ timestamp: new Date().toISOString(), level: "info", message: `[${step.label}] ⏳ En cours...`, step: step.id })
       }
     })
-
-    // Ajouter l'erreur globale si présente
-    if (job.error_message) {
-      logs.push({
-        timestamp: job.completed_at || new Date().toISOString(),
-        level: "error",
-        message: `[GLOBAL] ❌ ERREUR: ${job.error_message}`,
-      })
-      
-      // Si c'est une erreur de déploiement, ajouter un message d'aide
-      if (job.error_message.includes("503") || job.error_message.includes("404") || job.error_message.includes("DEPLOY_PROVISIONING")) {
-        logs.push({
-          timestamp: new Date().toISOString(),
-          level: "warn",
-          message: `[GLOBAL] ⚠️ L'Edge Function "provision-client" doit être déployée. Consultez DEPLOY_PROVISIONING.md`,
-        })
-      }
-    }
-
-    // Trier par timestamp et mettre à jour
+    if (job.error_message) logs.push({ timestamp: job.completed_at || new Date().toISOString(), level: "error", message: `❌ ${job.error_message}` })
     logs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
     setConsoleLogs(logs)
 
-    // Vérifier si le step deploy_edge_functions est encore en cours
-    // (il tourne en parallèle côté Next.js, indépendamment de l'Edge Function)
-    const edgeStep = newSteps.find((s: ProvisioningStep) => s.id === "deploy_edge_functions")
-    const edgeStillRunning = edgeStep && (edgeStep.status === "in_progress" || edgeStep.status === "pending")
+    const allStepsDone = newSteps.length > 0 && newSteps.every(
+      (s: ProvisioningStep) => s.status === "completed" || s.status === "failed" || s.status === "skipped"
+    )
+    const isJobTerminal = job.status === "completed" || job.status === "failed" || job.status === "cancelled"
 
-    // Si terminé ou en erreur, arrêter le polling (sauf si edge functions encore en cours)
-    if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
-      if (edgeStillRunning) {
-        // Le job principal est terminé mais les Edge Functions sont encore en cours
-        // On continue le polling pour suivre la progression
-        return true
-      }
-      if (job.status === "completed" && onComplete) {
-        onComplete()
-      }
+    if (isJobTerminal && allStepsDone) {
+      if (onComplete && !hasCalledOnComplete.current) { hasCalledOnComplete.current = true; onComplete() }
       return false
     }
-
-    return true // continuer le polling
+    if (isJobTerminal && !allStepsDone) return true
+    return true
   }, [jobId, onComplete])
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null
     let active = true
-
-    // Premier fetch immédiat
     pollJob().then((shouldContinue) => {
       if (shouldContinue && active) {
         interval = setInterval(async () => {
-          const shouldContinue = await pollJob()
-          if (!shouldContinue && interval) {
-            clearInterval(interval)
-          }
+          const cont = await pollJob()
+          if (!cont && interval) clearInterval(interval)
         }, 2000)
       }
     })
-
-    return () => {
-      active = false
-      if (interval) clearInterval(interval)
-    }
+    return () => { active = false; if (interval) clearInterval(interval) }
   }, [pollJob])
 
-  // Auto-scroll de la console vers le bas quand de nouveaux logs arrivent
+  // Auto-scroll console
   useEffect(() => {
-    if (consoleRef.current && showConsole) {
-      consoleRef.current.scrollTop = consoleRef.current.scrollHeight
-    }
-  }, [consoleLogs, showConsole])
+    if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight
+  }, [consoleLogs])
+
+  // ─── Computed ─────────────────────────────────────────────────────────────
 
   const completedSteps = steps.filter((s) => s.status === "completed").length
   const totalSteps = steps.length
-  const statusInfo = statusLabel(jobStatus)
+  const pct = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0
+
+  const allStepsDone = steps.length > 0 && steps.every((s) => s.status === "completed" || s.status === "failed" || s.status === "skipped")
+  const hasFailed = steps.some((s) => s.status === "failed")
+  const isFullyComplete = jobStatus === "completed" && allStepsDone && !hasFailed
+  const displayStatus: ProvisioningJobStatus = jobStatus === "completed" && !allStepsDone ? "running" : jobStatus
+
+  const canCancel = !(jobStatus === "completed" && clientId)
+  const canRetry = jobStatus === "pending" || jobStatus === "failed"
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────
 
   const handleCancel = async () => {
     setIsCancelling(true)
     const result = await cancelProvisioningJob(jobId)
     setIsCancelling(false)
     setShowCancelDialog(false)
-
-    if (result.success) {
-      toast.success(result.message || "Job annulé/supprimé")
-      router.refresh()
-      if (onComplete) onComplete()
-    } else {
-      toast.error(result.error || "Erreur lors de l'annulation")
-    }
+    if (result.success) { toast.success(result.message || "Job supprimé"); router.refresh(); if (onComplete) onComplete() }
+    else toast.error(result.error || "Erreur")
   }
-
-  // Le bouton supprimer est visible sauf pour les jobs completed qui ont créé un client
-  const canCancel = !(jobStatus === "completed" && clientId)
-  const canRetry = jobStatus === "pending" || jobStatus === "failed"
 
   const handleRetry = async () => {
     setIsRetrying(true)
     const result = await retryProvisioningJob(jobId)
     setIsRetrying(false)
-
-    if (result.success) {
-      toast.success(result.message || "Relance du job...")
-      router.refresh()
-      // Relancer le polling
-      setTimeout(() => pollJob(), 1000)
-    } else {
-      toast.error(result.error || "Erreur lors de la relance")
-    }
+    if (result.success) { toast.success(result.message || "Relance..."); router.refresh(); setTimeout(() => pollJob(), 1000) }
+    else toast.error(result.error || "Erreur")
   }
 
+  // ─── Status config ────────────────────────────────────────────────────────
+
+  const statusCfg: Record<ProvisioningJobStatus, { label: string; cls: string }> = {
+    pending: { label: "En attente", cls: "bg-muted text-muted-foreground" },
+    running: { label: "En cours", cls: "bg-primary/10 text-primary" },
+    completed: { label: "Terminé", cls: "bg-success/10 text-success" },
+    failed: { label: "Échec", cls: "bg-destructive/10 text-destructive" },
+    cancelled: { label: "Annulé", cls: "bg-muted text-muted-foreground" },
+  }
+  const st = statusCfg[displayStatus]
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
-    <Card className="border-border/50">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">
-            {clientName ? `Provisionnement : ${clientName}` : "Provisionnement en cours"}
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant={statusInfo.variant}>{statusInfo.text}</Badge>
+    <div className="h-full rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+      {/* ── Header ── */}
+      <div className="px-4 py-3 border-b border-border bg-muted/30">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`flex items-center justify-center h-7 w-7 rounded-md shrink-0 ${
+              isFullyComplete ? "bg-success/10 text-success" : displayStatus === "failed" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+            }`}>
+              {isFullyComplete ? <Sparkles className="h-3.5 w-3.5" /> : <Terminal className="h-3.5 w-3.5" />}
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-foreground truncate">
+                {clientName || "Provisionnement"}
+              </h3>
+              <p className="text-[10px] text-muted-foreground font-mono">
+                {completedSteps}/{totalSteps} · {pct}%
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${st.cls}`}>
+              {displayStatus === "running" && <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
+              {st.label}
+            </span>
             {canRetry && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5 text-xs"
-                onClick={handleRetry}
-                disabled={isRetrying}
-              >
-                {isRetrying ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Relance...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="h-3 w-3" />
-                    Relancer
-                  </>
-                )}
+              <Button variant="outline" size="sm" className="h-6 px-2 text-[11px] gap-1" onClick={handleRetry} disabled={isRetrying}>
+                {isRetrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               </Button>
             )}
             {canCancel && (
               <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
                 <DialogTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive hover:bg-destructive/10"
-                    disabled={isCancelling}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" disabled={isCancelling}>
+                    <Trash2 className="h-3 w-3" />
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="sm:max-w-md">
                   <DialogHeader>
-                    <DialogTitle>
-                      {jobStatus === "running"
-                        ? "Annuler le provisionnement ?"
-                        : jobStatus === "failed" || jobStatus === "cancelled"
-                          ? "Supprimer ce job ?"
-                          : "Supprimer ce job ?"}
-                    </DialogTitle>
+                    <DialogTitle>{jobStatus === "running" ? "Annuler ?" : "Supprimer ?"}</DialogTitle>
                     <DialogDescription>
                       {jobStatus === "running"
-                        ? "Le provisionnement en cours sera annulé. Les ressources déjà créées (Supabase, GitHub, Vercel) ne seront pas supprimées automatiquement."
-                        : jobStatus === "failed" || jobStatus === "cancelled"
-                          ? "Ce job de provisionnement sera supprimé définitivement de la base de données."
-                          : "Ce job de provisionnement sera supprimé définitivement."}
+                        ? "Les ressources déjà créées ne seront pas supprimées automatiquement."
+                        : "Ce job sera supprimé définitivement."}
                     </DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setShowCancelDialog(false)} disabled={isCancelling}>
-                      Annuler
-                    </Button>
+                    <Button variant="outline" onClick={() => setShowCancelDialog(false)} disabled={isCancelling}>Annuler</Button>
                     <Button variant="destructive" onClick={handleCancel} disabled={isCancelling}>
-                      {isCancelling ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          {jobStatus === "running" ? "Annulation..." : "Suppression..."}
-                        </>
-                      ) : (
-                        jobStatus === "running" ? "Annuler" : "Supprimer"
-                      )}
+                      {isCancelling && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      {jobStatus === "running" ? "Annuler" : "Supprimer"}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -351,198 +403,114 @@ export function ProvisioningProgress({ jobId, onComplete }: ProvisioningProgress
             )}
           </div>
         </div>
-        {totalSteps > 0 && (
-          <p className="text-xs text-muted-foreground mt-1">
-            {completedSteps}/{totalSteps} étapes terminées
-          </p>
-        )}
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {steps.map((step, index) => (
-            <div key={step.id} className="flex items-start gap-3">
-              <div className="mt-0.5">
-                <StepIcon status={step.status} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p
-                  className={`text-sm font-medium ${
-                    step.status === "pending" || step.status === "skipped"
-                      ? "text-muted-foreground"
-                      : ""
-                  }`}
-                >
-                  {step.label}
-                </p>
-                {step.error && (
-                  <p className="text-xs text-red-500 mt-0.5 break-all">{step.error}</p>
-                )}
-                {step.result && step.status === "completed" && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {"url" in step.result && step.result.url ? (
-                      <span className="font-mono text-[11px]">{String(step.result.url)}</span>
-                    ) : null}
-                    {"ref" in step.result && step.result.ref ? (
-                      <span className="font-mono text-[11px]">Ref: {String(step.result.ref)}</span>
-                    ) : null}
-                    {"count" in step.result && step.result.count !== undefined ? (
-                      <span>{String(step.result.count)} fichier(s)</span>
-                    ) : null}
-                    {"applied" in step.result && step.result.applied !== undefined ? (
-                      <span>{String(step.result.applied)} migration(s) appliquée(s)</span>
-                    ) : null}
-                    {"buckets" in step.result && step.result.buckets !== undefined ? (
-                      <span>{String(step.result.buckets)} bucket(s) créé(s)</span>
-                    ) : null}
-                    {"deployed" in step.result && step.result.deployed !== undefined ? (
-                      <span>
-                        {String(step.result.deployed)} Edge Function(s) déployée(s)
-                        {step.result.failed ? ` (${String(step.result.failed)} échec(s))` : ""}
-                      </span>
-                    ) : null}
-                    {"clientId" in step.result && step.result.clientId ? (
-                      <span className="font-mono text-[11px]">
-                        ID: {String(step.result.clientId)}
-                      </span>
-                    ) : null}
-                  </p>
-                )}
-              </div>
-              {index < steps.length - 1 && (
-                <div className="absolute left-[18px] top-[28px] w-px h-[calc(100%-28px)] bg-border" />
-              )}
-            </div>
-          ))}
+
+        {/* Progress bar */}
+        <div className="mt-2.5 h-1 rounded-full bg-border overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ease-out ${
+              isFullyComplete ? "bg-success" : hasFailed ? "bg-destructive" : "bg-primary"
+            }`}
+            style={{ width: `${pct}%` }}
+          />
         </div>
+      </div>
 
-        {/* Console en temps réel */}
-        <div className="mt-4 border rounded-lg overflow-hidden bg-card">
-          <button
-            onClick={() => setShowConsole(!showConsole)}
-            className="w-full flex items-center justify-between p-3 bg-muted hover:bg-accent transition text-left"
-          >
-            <div className="flex items-center gap-2">
-              <Terminal className="h-4 w-4 text-success" />
-              <span className="text-sm font-medium text-foreground">Console (logs en temps réel)</span>
-              <span className="text-xs text-muted-foreground">({consoleLogs.length} messages)</span>
-            </div>
-            {showConsole ? (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            )}
-          </button>
-          {showConsole && (
-            <div
-              ref={consoleRef}
-              className="p-4 font-mono text-xs max-h-[300px] overflow-y-auto bg-card"
-              style={{ fontFamily: "Consolas, Monaco, 'Courier New', monospace" }}
-            >
-              {consoleLogs.length === 0 ? (
-                <p className="text-muted-foreground">En attente de logs...</p>
-              ) : (
-                <div className="space-y-0.5">
-                  {consoleLogs.map((log, index) => {
-                    const time = new Date(log.timestamp).toLocaleTimeString("fr-CA", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                      fractionalSecondDigits: 3,
-                    })
-                    const colorClass =
-                      log.level === "error"
-                        ? "text-destructive"
-                        : log.level === "success"
-                          ? "text-success"
-                          : log.level === "warn"
-                            ? "text-chart-3"
-                            : "text-muted-foreground"
+      {/* ── Body : Pipeline + Console côte à côte ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)] items-start min-h-0 h-[calc(100%-72px)]">
+        {/* Left: Pipeline */}
+        <div className="min-w-0 px-4 py-4 lg:border-r lg:border-border overflow-y-auto">
+          <div className="space-y-0.5 pr-1">
+            {steps.map((step, i) => {
+            const prev = i > 0 ? steps[i - 1] : null
+            return (
+              <div key={step.id}>
+                {i > 0 && <Connector active={step.status === "in_progress"} completed={prev?.status === "completed" || false} />}
+                <StepNode step={step} index={i} />
+              </div>
+            )
+            })}
+          </div>
 
-                    return (
-                      <div key={index} className="flex items-start gap-2 leading-relaxed">
-                        <span className="text-muted-foreground shrink-0 select-none">{time}</span>
-                        <span className={`${colorClass} break-words`}>{log.message}</span>
-                      </div>
-                    )
-                  })}
+          {/* Success inline */}
+          {isFullyComplete && (
+            <div className="mt-4 flex items-center gap-2.5 rounded-lg border border-success/30 bg-success/5 px-3 py-2.5 animate-blueprint-node-in">
+              <Sparkles className="h-4 w-4 text-success shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-success">Projet créé avec succès !</p>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {resultUrls.supabaseUrl && (
+                    <a
+                      href={`https://supabase.com/dashboard/project/${resultUrls.supabaseUrl.replace("https://", "").replace(".supabase.co", "")}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-card border border-border text-foreground hover:bg-muted transition-colors"
+                    >
+                      <ExternalLink className="h-2.5 w-2.5" /> Supabase
+                    </a>
+                  )}
+                  {resultUrls.githubRepoUrl && (
+                    <a href={resultUrls.githubRepoUrl} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-card border border-border text-foreground hover:bg-muted transition-colors"
+                    >
+                      <ExternalLink className="h-2.5 w-2.5" /> GitHub
+                    </a>
+                  )}
+                  {resultUrls.vercelProjectUrl && (
+                    <a href={resultUrls.vercelProjectUrl} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-card border border-border text-foreground hover:bg-muted transition-colors"
+                    >
+                      <ExternalLink className="h-2.5 w-2.5" /> Vercel
+                    </a>
+                  )}
                 </div>
-              )}
+              </div>
+            </div>
+          )}
+
+          {/* Error inline */}
+          {errorMessage && (
+            <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+              <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-[12px] font-medium text-destructive">Erreur</p>
+                <p className="text-[10px] text-destructive/70 break-words mt-0.5 line-clamp-3">{errorMessage}</p>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Erreur globale */}
-        {errorMessage && (
-          <div className="mt-4 p-4 rounded-md bg-red-500/10 border border-red-500/20">
-            <div className="flex items-start gap-2">
-              <XCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-red-500 font-medium mb-1">Erreur</p>
-                <p className="text-xs text-red-400 break-words whitespace-pre-wrap">{errorMessage}</p>
-                {(errorMessage.includes("503") || errorMessage.includes("404") || errorMessage.includes("DEPLOY_PROVISIONING")) && (
-                  <div className="mt-3 pt-3 border-t border-red-500/20">
-                    <p className="text-xs text-red-300 mb-2">
-                      <strong>Solution :</strong> L&apos;Edge Function &quot;provision-client&quot; doit être déployée sur Supabase.
-                    </p>
-                    <ul className="text-xs text-red-300/80 space-y-1 list-disc list-inside">
-                      <li>Va dans Supabase Dashboard → Edge Functions</li>
-                      <li>Déploie la fonction &quot;provision-client&quot; depuis le dossier <code className="bg-red-500/20 px-1 rounded">supabase/functions/provision-client</code></li>
-                      <li>Configure tous les secrets requis (voir <code className="bg-red-500/20 px-1 rounded">DEPLOY_PROVISIONING.md</code>)</li>
-                    </ul>
-                  </div>
-                )}
+        {/* Right: Console (toujours visible) */}
+        <div className="min-w-0 px-4 pb-4 pt-3 lg:pl-3 lg:pr-4 lg:pt-4 lg:pb-4">
+          <div className="flex h-full flex-col border border-white/10 rounded-xl overflow-hidden bg-[#0c0c0f] min-h-0">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 shrink-0 bg-black/20">
+            <Terminal className="h-3 w-3 text-white/40" />
+            <span className="text-[10px] font-medium text-white/60 tracking-wide uppercase">Console</span>
+            <span className="text-[9px] text-white/30 font-mono ml-auto">{consoleLogs.length} logs</span>
+          </div>
+          <div
+            ref={consoleRef}
+            className="h-[320px] max-h-[calc(92vh-280px)] overflow-auto px-3 py-2 font-mono text-[10px] leading-relaxed"
+            style={{ fontFamily: "Consolas, Monaco, 'Courier New', monospace" }}
+          >
+            {consoleLogs.length === 0 ? (
+              <p className="text-white/20">En attente...</p>
+            ) : (
+              <div className="space-y-px">
+                {consoleLogs.map((log, i) => {
+                  const t = new Date(log.timestamp).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                  const c = log.level === "error" ? "text-red-400" : log.level === "success" ? "text-emerald-400" : log.level === "warn" ? "text-amber-400" : "text-white/40"
+                  return (
+                    <div key={i} className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-1.5">
+                      <span className="text-white/20 shrink-0 select-none">{t}</span>
+                      <span className={`${c} whitespace-pre-wrap break-words`}>{log.message}</span>
+                    </div>
+                  )
+                })}
               </div>
-            </div>
+            )}
           </div>
-        )}
-
-        {/* Succès : liens vers les ressources */}
-        {jobStatus === "completed" && (
-          <div className="mt-4 p-4 rounded-md bg-success/10 border border-success/20">
-            <div className="flex items-center gap-2 mb-3">
-              <PartyPopper className="h-5 w-5 text-success" />
-              <p className="text-sm text-success font-medium">
-                Projet créé avec succès !
-              </p>
-            </div>
-            <div className="space-y-2">
-              {resultUrls.supabaseUrl && (
-                <a
-                  href={`https://supabase.com/dashboard/project/${resultUrls.supabaseUrl.replace("https://", "").replace(".supabase.co", "")}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Supabase Dashboard
-                </a>
-              )}
-              {resultUrls.githubRepoUrl && (
-                <a
-                  href={resultUrls.githubRepoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Repository GitHub
-                </a>
-              )}
-              {resultUrls.vercelProjectUrl && (
-                <a
-                  href={resultUrls.vercelProjectUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Projet Vercel
-                </a>
-              )}
-            </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+    </div>
   )
 }

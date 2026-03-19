@@ -66,14 +66,13 @@ export const SUPABASE_REGIONS = [
 ] as const
 
 // Étapes du provisionnement (pour l'UI)
-// Étapes actives — la Edge Function s'arrête après les migrations SQL.
-// Le déploiement des Edge Functions est géré en parallèle côté Next.js.
-// Les étapes suivantes seront réactivées plus tard :
-//   create_github, create_vercel, configure_env, register_client
+// Le workflow actuel: Edge Function => migrations SQL,
+// puis worker Next.js => déploiement des Edge Functions + création du client.
 export const PROVISIONING_STEPS = [
   { id: "create_supabase", label: "Création du projet Supabase" },
   { id: "wait_supabase", label: "Attente de l'initialisation Supabase" },
   { id: "fetch_migrations", label: "Récupération des migrations SQL" },
   { id: "apply_migrations", label: "Application du schéma SQL" },
   { id: "deploy_edge_functions", label: "Installation des Edge Functions" },
+  { id: "register_client", label: "Création du client dans le dashboard" },
 ] as const

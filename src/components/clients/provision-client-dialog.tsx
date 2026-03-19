@@ -107,7 +107,7 @@ export function ProvisionClientDialog() {
           Nouveau client
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={step === "progress" ? "w-[96vw] max-w-[1320px] h-[92vh] max-h-[92vh] p-0 overflow-hidden flex flex-col" : "sm:max-w-lg"}>
         {step === "form" ? (
           <>
             <DialogHeader>

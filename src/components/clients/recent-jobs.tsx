@@ -95,13 +95,13 @@ export function RecentJobs({ jobs }: RecentJobsProps) {
 
       {/* Dialog pour voir les détails d'un job */}
       <Dialog open={!!selectedJobId} onOpenChange={() => setSelectedJobId(null)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="w-[96vw] max-w-[1200px] h-[92vh] max-h-[92vh] p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-3 border-b border-border/60">
             <DialogTitle>Détails du provisionnement</DialogTitle>
           </DialogHeader>
-          {selectedJobId && (
-            <ProvisioningProgress jobId={selectedJobId} />
-          )}
+          <div className="px-6 pb-6 pt-4 flex-1 min-h-0">
+            {selectedJobId && <ProvisioningProgress jobId={selectedJobId} />}
+          </div>
         </DialogContent>
       </Dialog>
     </>

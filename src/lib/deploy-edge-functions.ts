@@ -1,6 +1,11 @@
 import { createClient as createServiceClient } from "@supabase/supabase-js"
 import fs from "fs/promises"
 import path from "path"
+import os from "os"
+import { exec } from "child_process"
+import { promisify } from "util"
+
+const execAsync = promisify(exec)
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -19,22 +24,34 @@ interface ProvisioningStep {
   }>
 }
 
-// ─── Liste des Edge Functions à déployer ─────────────────────────────────────
-// Le format : { zip, entrypoint } — entrypoint dépend de la structure du zip.
-// Zips avec source/index.ts → entrypoint = "source/index.ts"
-// Zips avec index.ts à la racine → entrypoint = "index.ts"
+interface ProvisioningJobRow {
+  id: string
+  app_id: string
+  client_name: string
+  client_slug: string
+  supabase_project_ref: string | null
+  supabase_url: string | null
+  supabase_plan: "free" | "pro" | "team" | "enterprise"
+  monthly_revenue: number
+  github_repo_url: string | null
+  vercel_project_url: string | null
+  client_id: string | null
+  steps: ProvisioningStep[]
+}
 
-const EDGE_FUNCTIONS = [
-  { zip: "validate-transaction.zip", entrypoint: "source/index.ts" },
-  { zip: "membercard.zip", entrypoint: "source/index.ts" },
-  { zip: "get_transaction.zip", entrypoint: "source/index.ts" },
-  { zip: "send-notification.zip", entrypoint: "source/index.ts" },
-  { zip: "notify-new-user.zip", entrypoint: "source/index.ts" },
-  { zip: "send-activation-notifications.zip", entrypoint: "source/index.ts" },
-  { zip: "send-email.zip", entrypoint: "source/index.ts" },
-  { zip: "update-disposable-emails.zip", entrypoint: "source/index.ts" },
-  { zip: "handletransaction2.zip", entrypoint: "index.ts" },
-  { zip: "send-member-welcome-email.zip", entrypoint: "index.ts" },
+// ─── Liste des Edge Functions à déployer ─────────────────────────────────────
+
+const EDGE_FUNCTION_ZIPS = [
+  "validate-transaction.zip",
+  "membercard.zip",
+  "get_transaction.zip",
+  "send-notification.zip",
+  "notify-new-user.zip",
+  "send-activation-notifications.zip",
+  "send-email.zip",
+  "update-disposable-emails.zip",
+  "handletransaction2.zip",
+  "send-member-welcome-email.zip",
 ]
 
 // ─── Helper : mettre à jour un step du job ──────────────────────────────────
@@ -74,6 +91,110 @@ async function updateStep(
     .from("provisioning_jobs")
     .update({ steps, updated_at: timestamp })
     .eq("id", jobId)
+}
+
+async function updateJobStatus(
+  supabaseAdmin: ReturnType<typeof createServiceClient>,
+  jobId: string,
+  status: "pending" | "running" | "completed" | "failed" | "cancelled",
+  fields?: Record<string, unknown>
+) {
+  const now = new Date().toISOString()
+  const payload: Record<string, unknown> = {
+    status,
+    updated_at: now,
+    ...(fields || {}),
+  }
+
+  if (status === "completed" || status === "failed" || status === "cancelled") {
+    payload.completed_at = now
+  }
+
+  await supabaseAdmin.from("provisioning_jobs").update(payload).eq("id", jobId)
+}
+
+async function registerClientAndCompleteJob(
+  supabaseAdmin: ReturnType<typeof createServiceClient>,
+  jobId: string
+): Promise<void> {
+  await updateStep(
+    supabaseAdmin,
+    jobId,
+    "register_client",
+    {
+      status: "in_progress",
+      started_at: new Date().toISOString(),
+    },
+    "Création du client dans la table clients...",
+    "info"
+  )
+
+  const { data: jobRaw, error: jobErr } = await supabaseAdmin
+    .from("provisioning_jobs")
+    .select("id, app_id, client_name, client_slug, supabase_project_ref, supabase_url, supabase_plan, monthly_revenue, github_repo_url, vercel_project_url, client_id, steps")
+    .eq("id", jobId)
+    .single()
+
+  if (jobErr || !jobRaw) {
+    throw new Error(jobErr?.message || "Job introuvable pour création client")
+  }
+
+  const job = jobRaw as ProvisioningJobRow
+
+  let clientId = job.client_id
+  if (!clientId) {
+    const { data: existingClient } = await supabaseAdmin
+      .from("clients")
+      .select("id")
+      .eq("slug", job.client_slug)
+      .maybeSingle()
+
+    if (existingClient?.id) {
+      clientId = existingClient.id
+    } else {
+      const { data: createdClient, error: insertErr } = await supabaseAdmin
+        .from("clients")
+        .insert({
+          app_id: job.app_id,
+          name: job.client_name,
+          slug: job.client_slug,
+          supabase_project_ref: job.supabase_project_ref,
+          supabase_url: job.supabase_url,
+          supabase_plan: job.supabase_plan,
+          monthly_revenue: job.monthly_revenue,
+          github_repo_url: job.github_repo_url,
+          vercel_project_url: job.vercel_project_url,
+          status: "active",
+        })
+        .select("id")
+        .single()
+
+      if (insertErr || !createdClient) {
+        throw new Error(insertErr?.message || "Impossible de créer le client")
+      }
+
+      clientId = createdClient.id
+    }
+  }
+
+  await updateStep(
+    supabaseAdmin,
+    jobId,
+    "register_client",
+    {
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      result: { clientId },
+    },
+    `✅ Client créé: ${job.client_name}`,
+    "success"
+  )
+
+  await updateJobStatus(supabaseAdmin, jobId, "completed", {
+    client_id: clientId,
+    error_message: null,
+    error_step: null,
+  })
 }
 
 // ─── Helper : attendre que le project_ref soit disponible ───────────────────
@@ -129,47 +250,6 @@ async function waitForMigrations(
   return false
 }
 
-// ─── Helper : déployer un zip via l'API Management Supabase ─────────────────
-
-async function deployOneFunction(
-  accessToken: string,
-  projectRef: string,
-  slug: string,
-  zipBuffer: Buffer,
-  zipFileName: string,
-  entrypoint: string
-): Promise<{ ok: boolean; error?: string }> {
-  // L'API /v1/projects/{ref}/functions/deploy accepte un FormData avec :
-  //   - file: le zip
-  //   - metadata: JSON { name, entrypoint_path, verify_jwt }
-  const blob = new Blob([zipBuffer], { type: "application/zip" })
-
-  const formData = new FormData()
-  formData.append("file", blob, zipFileName)
-  formData.append(
-    "metadata",
-    JSON.stringify({
-      name: slug,
-      entrypoint_path: entrypoint,
-      verify_jwt: false,
-    })
-  )
-
-  const res = await fetch(
-    `https://api.supabase.com/v1/projects/${projectRef}/functions/deploy`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: formData,
-    }
-  )
-
-  if (res.ok) return { ok: true }
-
-  const errorText = await res.text().catch(() => res.statusText)
-  return { ok: false, error: `HTTP ${res.status}: ${errorText}` }
-}
-
 // ─── Fonction principale (appelée en background, sans await) ────────────────
 
 export async function deployEdgeFunctionsForJob(jobId: string): Promise<void> {
@@ -192,6 +272,8 @@ export async function deployEdgeFunctionsForJob(jobId: string): Promise<void> {
   const supabaseAdmin = createServiceClient(supabaseUrl, supabaseServiceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+
+  const tmpDir = path.join(os.tmpdir(), `edge-deploy-${jobId}-${Date.now()}`)
 
   try {
     // 1. Marquer le step comme "in_progress"
@@ -232,61 +314,115 @@ export async function deployEdgeFunctionsForJob(jobId: string): Promise<void> {
     await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
       "✅ Migrations terminées — lancement du déploiement", "success")
 
-    // 4. Lire les zips et déployer via l'API Management
+    // 4. Préparer le dossier temporaire avec la structure Supabase CLI v2
+    const supabaseFunctionsDir = path.join(tmpDir, "supabase", "functions")
+    await fs.mkdir(supabaseFunctionsDir, { recursive: true })
+
+    // config.toml au format CLI v2 (project_id au top level)
+    const configToml = `project_id = "${projectRef}"\n\n[api]\nenabled = false\n`
+    await fs.writeFile(path.join(tmpDir, "supabase", "config.toml"), configToml)
+
     const templateDir = path.join(process.cwd(), "templates", "myfidelity")
     const deployed: Array<{ slug: string; ok: boolean; error?: string }> = []
 
-    await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
-      `🚀 Déploiement de ${EDGE_FUNCTIONS.length} fonctions via API Management…`, "info")
-
-    for (const func of EDGE_FUNCTIONS) {
-      const slug = func.zip.replace(/\.zip$/i, "")
-      const zipPath = path.join(templateDir, func.zip)
+    // 5. Extraire chaque zip dans la structure supabase/functions/<slug>/
+    for (const zipFile of EDGE_FUNCTION_ZIPS) {
+      const slug = zipFile.replace(/\.zip$/i, "")
+      const zipPath = path.join(templateDir, zipFile)
 
       try {
-        console.log(`[EDGE-DEPLOY] 🚀 ${slug} (entrypoint: ${func.entrypoint})…`)
+        await fs.access(zipPath)
 
-        // Lire le zip depuis le disque
-        const zipBuffer = await fs.readFile(zipPath)
+        const funcDir = path.join(supabaseFunctionsDir, slug)
+        await fs.mkdir(funcDir, { recursive: true })
 
-        // Tenter le déploiement avec l'entrypoint connu
-        let result = await deployOneFunction(
-          accessToken, projectRef, slug, zipBuffer, func.zip, func.entrypoint
-        )
+        const extractDir = path.join(tmpDir, `extract-${slug}`)
+        await fs.mkdir(extractDir, { recursive: true })
 
-        // Si entrypoint pas trouvé, essayer l'autre variante
-        if (!result.ok && result.error?.includes("Entrypoint path does not exist")) {
-          const altEntrypoint = func.entrypoint === "index.ts" ? "source/index.ts" : "index.ts"
-          console.log(`[EDGE-DEPLOY] ⚠️ ${slug}: entrypoint ${func.entrypoint} pas trouvé, essai ${altEntrypoint}…`)
-          result = await deployOneFunction(
-            accessToken, projectRef, slug, zipBuffer, func.zip, altEntrypoint
-          )
-        }
+        await execAsync(`tar -xf "${zipPath}" -C "${extractDir}"`)
 
-        if (result.ok) {
-          deployed.push({ slug, ok: true })
-          console.log(`[EDGE-DEPLOY] ✅ ${slug} déployée`)
-          await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
-            `✅ ${slug} (${deployed.filter((d) => d.ok).length}/${EDGE_FUNCTIONS.length})`, "success")
+        // Détecter : source/index.ts ou index.ts à la racine
+        let hasSourceDir = false
+        try {
+          await fs.access(path.join(extractDir, "source", "index.ts"))
+          hasSourceDir = true
+        } catch { hasSourceDir = false }
+
+        if (hasSourceDir) {
+          await fs.copyFile(path.join(extractDir, "source", "index.ts"), path.join(funcDir, "index.ts"))
+          try { await fs.copyFile(path.join(extractDir, "source", "deno.json"), path.join(funcDir, "deno.json")) } catch { /* optionnel */ }
         } else {
-          deployed.push({ slug, ok: false, error: result.error })
-          console.error(`[EDGE-DEPLOY] ❌ ${slug}:`, result.error)
-          await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
-            `❌ ${slug}: ${(result.error || "").substring(0, 200)}`, "error")
+          await fs.copyFile(path.join(extractDir, "index.ts"), path.join(funcDir, "index.ts"))
+          try { await fs.copyFile(path.join(extractDir, "deno.json"), path.join(funcDir, "deno.json")) } catch { /* optionnel */ }
         }
+
+        console.log(`[EDGE-DEPLOY] 📂 ${slug} extrait (${hasSourceDir ? "source/" : "racine"})`)
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        console.error(`[EDGE-DEPLOY] ❌ ${slug}:`, errMsg)
-        deployed.push({ slug, ok: false, error: errMsg })
-        await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
-          `❌ ${slug}: ${errMsg.substring(0, 200)}`, "error")
+        console.error(`[EDGE-DEPLOY] ❌ Erreur extraction ${slug}:`, errMsg)
+        deployed.push({ slug, ok: false, error: `Extraction: ${errMsg}` })
       }
-
-      // Petite pause entre chaque deploy pour éviter les rate limits
-      await new Promise((r) => setTimeout(r, 1000))
     }
 
-    // 5. Résultat final
+    // 6. Déployer via la CLI Supabase
+    const functionSlugs = EDGE_FUNCTION_ZIPS.map((z) => z.replace(/\.zip$/i, ""))
+    const toDeployList = functionSlugs.filter(
+      (slug) => !deployed.some((d) => d.slug === slug && !d.ok)
+    )
+
+    if (toDeployList.length > 0) {
+      await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
+        `🚀 Déploiement de ${toDeployList.length} fonctions via CLI…`, "info")
+
+      for (const slug of toDeployList) {
+        try {
+          console.log(`[EDGE-DEPLOY] 🚀 Déploiement: ${slug}…`)
+
+          const cmd = [
+            "npx supabase functions deploy",
+            slug,
+            `--project-ref ${projectRef}`,
+            "--no-verify-jwt",
+            "--use-api",
+          ].join(" ")
+
+          const { stdout, stderr } = await execAsync(cmd, {
+            cwd: tmpDir,
+            env: { ...process.env, SUPABASE_ACCESS_TOKEN: accessToken },
+            timeout: 120_000,
+          })
+
+          if (stdout) console.log(`[EDGE-DEPLOY] ${slug} stdout:`, stdout.trim())
+          if (stderr && !stderr.includes("warn") && !stderr.includes("npm")) {
+            console.log(`[EDGE-DEPLOY] ${slug} stderr:`, stderr.trim())
+          }
+
+          deployed.push({ slug, ok: true })
+          console.log(`[EDGE-DEPLOY] ✅ ${slug} déployée`)
+
+          await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
+            `✅ ${slug} (${deployed.filter((d) => d.ok).length}/${toDeployList.length})`, "success")
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          const stderr = (err as { stderr?: string })?.stderr || ""
+          const fullError = stderr ? `${errMsg}\n${stderr}` : errMsg
+          console.error(`[EDGE-DEPLOY] ❌ ${slug}:`, fullError)
+          deployed.push({ slug, ok: false, error: fullError.substring(0, 500) })
+
+          await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {},
+            `❌ ${slug}: ${fullError.substring(0, 200)}`, "error")
+        }
+      }
+    }
+
+    // 7. Nettoyage
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    } catch {
+      console.warn("[EDGE-DEPLOY] Impossible de nettoyer:", tmpDir)
+    }
+
+    // 8. Résultat final
     const failed = deployed.filter((d) => !d.ok)
     const succeeded = deployed.filter((d) => d.ok)
 
@@ -295,6 +431,14 @@ export async function deployEdgeFunctionsForJob(jobId: string): Promise<void> {
       await updateStep(supabaseAdmin, jobId, "deploy_edge_functions", {
         status: "failed", error: errorMsg, completed_at: new Date().toISOString(),
       }, `❌ ${errorMsg}`, "error")
+      await updateStep(supabaseAdmin, jobId, "register_client", {
+        status: "skipped",
+        completed_at: new Date().toISOString(),
+      }, "⏭️ Client non créé car le déploiement Edge a échoué", "warn")
+      await updateJobStatus(supabaseAdmin, jobId, "failed", {
+        error_message: errorMsg,
+        error_step: "deploy_edge_functions",
+      })
       return
     }
 
@@ -304,6 +448,7 @@ export async function deployEdgeFunctionsForJob(jobId: string): Promise<void> {
         status: "completed", completed_at: new Date().toISOString(),
         result: { deployed: succeeded.length, failed: failed.length, failed_names: failed.map((f) => f.slug) },
       }, `⚠️ ${warnMsg}`, "warn")
+      await registerClientAndCompleteJob(supabaseAdmin, jobId)
       return
     }
 
@@ -311,6 +456,7 @@ export async function deployEdgeFunctionsForJob(jobId: string): Promise<void> {
       status: "completed", completed_at: new Date().toISOString(),
       result: { deployed: succeeded.length },
     }, `✅ ${succeeded.length} Edge Functions déployées avec succès`, "success")
+    await registerClientAndCompleteJob(supabaseAdmin, jobId)
 
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
@@ -320,5 +466,22 @@ export async function deployEdgeFunctionsForJob(jobId: string): Promise<void> {
         status: "failed", error: `Erreur fatale: ${msg}`, completed_at: new Date().toISOString(),
       }, `❌ Erreur fatale: ${msg}`, "error")
     } catch { /* best effort */ }
+    try {
+      await updateStep(supabaseAdmin, jobId, "register_client", {
+        status: "failed",
+        error: `Impossible de créer le client: ${msg}`,
+        completed_at: new Date().toISOString(),
+      }, `❌ Création client échouée: ${msg}`, "error")
+    } catch { /* best effort */ }
+    try {
+      await updateJobStatus(supabaseAdmin, jobId, "failed", {
+        error_message: msg,
+        error_step: "register_client",
+      })
+    } catch { /* best effort */ }
+
+    try {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    } catch { /* ignore */ }
   }
 }
