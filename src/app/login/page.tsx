@@ -7,7 +7,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-3">
           <div className="flex justify-center mb-6">
-            <Logo showText={true} />
+            <Logo showText={false} />
           </div>
           <h1 className="text-2xl font-semibold text-foreground">Connexion</h1>
           <p className="text-sm text-muted-foreground">

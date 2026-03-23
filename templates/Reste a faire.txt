@@ -1,0 +1,53 @@
+Reste à faire
+
+Données & Modélisation
+
+Finaliser la nomenclature
+
+Corriger le problème lié aux billions de foyers
+
+Précalculer les infrastructures existantes pour 2035 et 2050
+
+
+Technique & Bugs
+
+Corriger le bug nécessitant un refresh pour afficher les infrastructures
+
+Résoudre le problème empêchant l’accès au Sankey après un retour en arrière
+
+Performance
+
+Réduire le temps de chargement du Sankey ou Afficher des éléments intermédiaires pendant le chargement
+
+UX / UI
+
+Mettre en place un vrai parcours utilisateur (guidage clair étape par étape)
+
+Renommer les étapes du ankey (noms non pertinents actuellement)
+
+Ajouter un fil conducteur (type “steps”) tout au long de la simulation
+
+Garder la légende visible en permanence pour aire protégé(fixée dans un coin de l’écran)
+
+Améliorer les graphiques sous le Sankey (benedetta
+
+Fonctionnalités
+
+Ajouter une colonne “type d’énergie” dans le Sankey - éléc et fozzile
+
+Permettre de cliquer sur une infrastructure depuis la carte pour voir :
+
+sa production
+
+ses coûts
+
+ses émissions de CO₂
+
+Contenu
+
+Supprimer les informations inutiles dans les zones protégées
+
+
+
+
+Bus interconnextion

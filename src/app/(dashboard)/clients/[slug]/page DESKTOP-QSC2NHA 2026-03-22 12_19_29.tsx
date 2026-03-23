@@ -9,7 +9,6 @@ import { NotesEditor } from "@/components/clients/notes-editor"
 import { LinksSection } from "@/components/clients/links-section"
 import { RefreshMetricsButton } from "@/components/clients/refresh-metrics-button"
 import { ExpensesManager } from "@/components/clients/expenses-manager"
-import { StatsDashboard } from "@/components/clients/stats-dashboard"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   formatBytes,
@@ -82,21 +81,26 @@ export default async function ClientDetailPage({
     },
   })
   const parsedStatsResponse = statsResponse as
-    | {
-        stats?: {
-          kpi?: Record<string, unknown>
-          user_kpi?: Record<string, unknown>
-          charts?: Record<string, Record<string, unknown>[]>
-          source?: string
-        }
-        stats_error?: string | null
-      }
+    | { stats?: { kpi?: Record<string, unknown>; source?: string }; stats_error?: string | null }
     | null
   const statsKpi = (parsedStatsResponse?.stats?.kpi ?? {}) as Record<string, unknown>
-  const userStatsKpi = (parsedStatsResponse?.stats?.user_kpi ?? {}) as Record<string, unknown>
-  const statsCharts = (parsedStatsResponse?.stats?.charts ?? {}) as Record<string, Record<string, unknown>[]>
   const statsSource = parsedStatsResponse?.stats?.source ?? null
   const statsError = parsedStatsResponse?.stats_error ?? null
+
+  const formatStatLabel = (key: string) =>
+    key
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase())
+
+  const formatStatValue = (value: unknown) => {
+    if (value === null || value === undefined) return "—"
+    if (typeof value === "number") return Number.isInteger(value) ? formatNumber(value) : value.toFixed(2)
+    if (typeof value === "boolean") return value ? "Oui" : "Non"
+    if (typeof value === "string" && !Number.isNaN(Date.parse(value))) {
+      return new Date(value).toLocaleString("fr-CA")
+    }
+    return String(value)
+  }
 
   return (
     <div className="space-y-6">
@@ -292,7 +296,21 @@ export default async function ClientDetailPage({
                   ) : null}
                 </div>
               ) : (
-                <StatsDashboard source={statsSource} kpi={statsKpi} userKpi={userStatsKpi} charts={statsCharts} />
+                <div className="space-y-3">
+                  {statsSource ? (
+                    <p className="text-xs text-muted-foreground">
+                      Source: {statsSource}
+                    </p>
+                  ) : null}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {Object.entries(statsKpi).map(([key, value]) => (
+                      <div key={key} className="rounded-md border border-border/60 p-3">
+                        <p className="text-xs text-muted-foreground">{formatStatLabel(key)}</p>
+                        <p className="mt-1 text-base font-semibold">{formatStatValue(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
